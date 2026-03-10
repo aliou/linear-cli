@@ -1,0 +1,287 @@
+/**
+ * Configuration management for linear-cli.
+ * Handles loading, saving, and validating config from ~/.config/linear-cli/config.json
+ */
+
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+import { CONFIG_FILE } from "./constants.ts";
+
+export interface Config {
+  // API token from Linear settings
+  apiToken?: string;
+
+  // Default team key (e.g. "ENG")
+  defaultTeamKey?: string;
+
+  // Output preferences
+  outputFormat?: "json" | "table";
+
+  // Additional paths to search for local config files
+  localConfigPaths?: string[];
+}
+
+export interface LocalConfig {
+  defaultTeamKey?: string;
+  defaultProject?: string;
+  outputFormat?: "json" | "table";
+}
+
+const DEFAULT_CONFIG: Config = {
+  outputFormat: "table",
+};
+
+const DEFAULT_LOCAL_CONFIG_PATHS = [
+  ".agents/linear.json",
+  ".linear.json",
+  ".linear/config.json",
+];
+
+/**
+ * Get the path to the config directory.
+ * Respects XDG_CONFIG_HOME, falls back to ~/.config
+ */
+export function getConfigDir(): string {
+  const configHome = process.env.XDG_CONFIG_HOME || join(homedir(), ".config");
+  return join(configHome, "linear-cli");
+}
+
+/**
+ * Get the path to the config file.
+ */
+export function getConfigPath(): string {
+  return join(getConfigDir(), CONFIG_FILE);
+}
+
+/**
+ * Validate config object structure.
+ * Returns a valid Config object, stripping unknown fields.
+ */
+export function validateConfig(data: unknown): Config {
+  if (!data || typeof data !== "object") {
+    return { ...DEFAULT_CONFIG };
+  }
+
+  const obj = data as Record<string, unknown>;
+  const config: Config = { ...DEFAULT_CONFIG };
+
+  if (typeof obj.apiToken === "string") {
+    config.apiToken = obj.apiToken;
+  }
+
+  if (typeof obj.defaultTeamKey === "string") {
+    config.defaultTeamKey = obj.defaultTeamKey;
+  }
+
+  if (obj.outputFormat === "json" || obj.outputFormat === "table") {
+    config.outputFormat = obj.outputFormat;
+  }
+
+  if (
+    Array.isArray(obj.localConfigPaths) &&
+    obj.localConfigPaths.every((p: unknown) => typeof p === "string")
+  ) {
+    config.localConfigPaths = obj.localConfigPaths as string[];
+  }
+
+  return config;
+}
+
+/**
+ * Load config from disk.
+ * Returns default config if file doesn't exist.
+ */
+export async function loadConfig(): Promise<Config> {
+  const configPath = getConfigPath();
+
+  try {
+    const file = Bun.file(configPath);
+    const exists = await file.exists();
+
+    if (!exists) {
+      return { ...DEFAULT_CONFIG };
+    }
+
+    const content = await file.text();
+    const data = JSON.parse(content);
+    return validateConfig(data);
+  } catch (error) {
+    // If JSON parsing fails, return default config
+    if (error instanceof SyntaxError) {
+      console.error(
+        `Warning: Invalid config file at ${configPath}, using defaults`,
+      );
+      return { ...DEFAULT_CONFIG };
+    }
+    throw error;
+  }
+}
+
+/**
+ * Save config to disk.
+ * Creates directory with 0700 and file with 0600 permissions.
+ */
+export async function saveConfig(config: Config): Promise<void> {
+  const configPath = getConfigPath();
+  const configDir = dirname(configPath);
+
+  // Create directory with restricted permissions (owner only)
+  const { mkdir, chmod } = await import("node:fs/promises");
+  await mkdir(configDir, { recursive: true, mode: 0o700 });
+
+  // Write config file
+  const content = `${JSON.stringify(config, null, 2)}\n`;
+  await Bun.write(configPath, content);
+
+  // Set file permissions (owner read/write only)
+  await chmod(configPath, 0o600);
+}
+
+/**
+ * Update specific config fields without overwriting the entire config.
+ */
+export async function updateConfig(updates: Partial<Config>): Promise<Config> {
+  const current = await loadConfig();
+  const updated = { ...current, ...updates };
+  await saveConfig(updated);
+  return updated;
+}
+
+/**
+ * Get the API token, checking env var first, then config file.
+ */
+export async function getApiToken(): Promise<string | undefined> {
+  // Environment variable takes precedence
+  const envToken = process.env.LINEAR_API_TOKEN;
+  if (envToken) {
+    return envToken;
+  }
+
+  const config = await loadConfig();
+  return config.apiToken;
+}
+
+/**
+ * Check file permissions and warn if too open.
+ * Returns true if permissions are safe (owner-only).
+ */
+export async function checkConfigPermissions(): Promise<boolean> {
+  const configPath = getConfigPath();
+
+  try {
+    const { stat } = await import("node:fs/promises");
+    const stats = await stat(configPath);
+    const mode = stats.mode & 0o777;
+
+    // Warn if group or others can read
+    if (mode & 0o077) {
+      console.error(
+        `Warning: Config file ${configPath} has unsafe permissions (${mode.toString(8)}).`,
+      );
+      console.error(`Consider running: chmod 600 ${configPath}`);
+      return false;
+    }
+
+    return true;
+  } catch {
+    // File doesn't exist yet, that's fine
+    return true;
+  }
+}
+
+/**
+ * Validate local config object structure.
+ * Returns a valid LocalConfig object, stripping unknown fields.
+ */
+export function validateLocalConfig(data: unknown): LocalConfig {
+  if (!data || typeof data !== "object") {
+    return {};
+  }
+
+  const obj = data as Record<string, unknown>;
+  const config: LocalConfig = {};
+
+  if (typeof obj.defaultTeamKey === "string") {
+    config.defaultTeamKey = obj.defaultTeamKey;
+  }
+
+  if (typeof obj.defaultProject === "string") {
+    config.defaultProject = obj.defaultProject;
+  }
+
+  if (obj.outputFormat === "json" || obj.outputFormat === "table") {
+    config.outputFormat = obj.outputFormat;
+  }
+
+  return config;
+}
+
+/**
+ * Load a local config file by walking up directories from cwd.
+ * Searches DEFAULT_LOCAL_CONFIG_PATHS (plus any additional paths from global config)
+ * at each directory until reaching / or homedir().
+ */
+export async function loadLocalConfig(
+  additionalPaths?: string[],
+): Promise<LocalConfig | undefined> {
+  const home = homedir();
+  const searchPaths = [
+    ...DEFAULT_LOCAL_CONFIG_PATHS,
+    ...(additionalPaths ?? []),
+  ];
+
+  let dir = process.cwd();
+
+  while (true) {
+    for (const relPath of searchPaths) {
+      const filePath = join(dir, relPath);
+      try {
+        const file = Bun.file(filePath);
+        const exists = await file.exists();
+        if (exists) {
+          const content = await file.text();
+          const data = JSON.parse(content);
+          return validateLocalConfig(data);
+        }
+      } catch {
+        // Skip files that can't be read or parsed
+      }
+    }
+
+    // Stop at filesystem root or home directory
+    if (dir === "/" || dir === home) {
+      break;
+    }
+
+    const parent = dirname(dir);
+    if (parent === dir) {
+      break;
+    }
+    dir = parent;
+  }
+
+  return undefined;
+}
+
+/**
+ * Load global config and local config, merging local overrides.
+ * Local config values override global config values (except apiToken).
+ */
+export async function loadMergedConfig(): Promise<{
+  config: Config;
+  local: LocalConfig | undefined;
+}> {
+  const config = await loadConfig();
+  const local = await loadLocalConfig(config.localConfigPaths);
+
+  if (local) {
+    if (local.defaultTeamKey !== undefined) {
+      config.defaultTeamKey = local.defaultTeamKey;
+    }
+    if (local.outputFormat !== undefined) {
+      config.outputFormat = local.outputFormat;
+    }
+  }
+
+  return { config, local };
+}
