@@ -20,7 +20,7 @@
       binaries = {
         "aarch64-darwin" = {
           url = "https://github.com/aliou/linear-cli/releases/download/v${version}/linear-darwin-arm64";
-          hash = "sha256-nHWLI8sbDTu9phHCedNmhmTnXWXM2SZeDfiiTTVHCgY="; # darwin
+          hash = "sha256-cCZoY8cK6Yt0zlMM+sKxY2DIZZkgYsADHLuk6zM2ymM="; # darwin
         };
         "aarch64-linux" = {
           url = "https://github.com/aliou/linear-cli/releases/download/v${version}/linear-linux-arm64";

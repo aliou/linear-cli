@@ -1,5 +1,4 @@
 name: Version
-
 on:
   push:
     branches:
@@ -22,24 +21,19 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
-
       - name: Install Nix
         uses: cachix/install-nix-action@v30
-
       - name: Install dependencies
         run: bun install --frozen-lockfile
-
       - name: Check for changesets
         id: check
         run: |
@@ -54,7 +48,6 @@ jobs:
           else
             echo "hasChangesets=false" >> $GITHUB_OUTPUT
           fi
-
       - name: Version and build
         if: steps.check.outputs.hasChangesets == 'true'
         id: version
@@ -62,7 +55,6 @@ jobs:
           bun run version
           VERSION=$(jq -r '.version' package.json)
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-
       - name: Create Release PR
         if: steps.version.outputs.version
         uses: peter-evans/create-pull-request@v7
@@ -75,31 +67,50 @@ jobs:
             Merging will create a git tag and GitHub release.
           branch: release/v${{ steps.version.outputs.version }}
           delete-branch: true
-
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Install Nix
+        uses: cachix/install-nix-action@v30
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Check for changesets
+        id: check
+        run: |
+          if ls .changeset/*.md 1>/dev/null 2>&1; then
+            # Check if any non-README changeset files exist
+            count=$(ls .changeset/*.md 2>/dev/null | grep -v README.md | wc -l)
+            if [ "$count" -gt "0" ]; then
+              echo "hasChangesets=true" >> $GITHUB_OUTPUT
+            else
+              echo "hasChangesets=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "hasChangesets=false" >> $GITHUB_OUTPUT
+          fi
       - name: Release
         if: steps.check.outputs.hasChangesets == 'false' || inputs.force_release
         run: |
           VERSION=$(jq -r '.version' package.json)
           TAG="v${VERSION}"
           
-          # Skip if tag already exists (unless force_release)
-          if git ls-remote --tags origin | grep -q "refs/tags/${TAG}$"; then
-            if [ "${{ inputs.force_release }}" != "true" ]; then
-              echo "Tag ${TAG} already exists, skipping"
-              exit 0
-            fi
-          fi
-          
-          echo "Releasing ${TAG}..."
-          
-          # Configure git
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          
           # Build binaries
           bun run build
           
-          # Compute hashes
+          # Compute hashes and update flake.nix
           DARWIN_ARM_HASH=$(nix hash file --sri dist/linear-darwin-arm64)
           LINUX_ARM_HASH=$(nix hash file --sri dist/linear-linux-arm64)
           LINUX_X64_HASH=$(nix hash file --sri dist/linear-linux-x64)
@@ -107,20 +118,26 @@ jobs:
           echo "Linux ARM64 hash: $LINUX_ARM_HASH"
           echo "Linux x64 hash: $LINUX_X64_HASH"
           
-          # Update flake.nix with correct hashes
           sed -i "s|hash = \"sha256-.*\"; # darwin|hash = \"${DARWIN_ARM_HASH}\"; # darwin|" flake.nix
           sed -i "s|hash = \"sha256-.*\"; # linux-arm64|hash = \"${LINUX_ARM_HASH}\"; # linux-arm64|" flake.nix
           sed -i "s|hash = \"sha256-.*\"; # linux-x64|hash = \"${LINUX_X64_HASH}\"; # linux-x64|" flake.nix
           
-          # Commit hash update
+          # Commit and push flake.nix
           git add flake.nix
           git commit -m "chore: update binary hashes for ${TAG}"
           git push origin main
           
-          # Create tag on the new commit and release
+          # Check if we should create a release
+          if git ls-remote --tags origin | grep -q "refs/tags/${TAG}$"; then
+            if [ "${{ inputs.force_release }}" != "true" ]; then
+              echo "Tag ${TAG} already exists, skipping release creation"
+              exit 0
+            fi
+          fi
+          
+          # Create the release
           git tag -a "${TAG}" -m "Release ${TAG}"
           git push origin "${TAG}"
-          
           gh release create "${TAG}" \
             --title "${TAG}" \
             --generate-notes \
@@ -128,14 +145,9 @@ jobs:
             dist/linear-linux-arm64 \
             dist/linear-linux-x64 \
             SKILL.md
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Update Homebrew tap
-        if: steps.check.outputs.hasChangesets == 'false' || inputs.force_release
-        run: |
-          VERSION=$(jq -r '.version' package.json)
-          DARWIN_SHA256=$(sha256sum dist/linear-darwin-arm64 | awk '{print $1}')
+          
+          # Update Homebrew tap
+          DARWIN_SHA256=$(shasum -a 256 dist/linear-darwin-arm64 | awk '{print $1}')
           gh api repos/aliou/homebrew-toolbox/dispatches \
             -f event_type=update-formula \
             -f 'client_payload[formula]=linear-cli' \
@@ -144,4 +156,5 @@ jobs:
             -f 'client_payload[repo]=aliou/linear-cli' \
             -f "client_payload[sha256]=${DARWIN_SHA256}"
         env:
-          GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
