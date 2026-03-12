@@ -3,10 +3,12 @@ on:
   push:
     branches:
       - main
+    tags:
+      - 'v*'
   workflow_dispatch:
     inputs:
       force_release:
-        description: "Force create release for current version"
+        description: 'Force create release for current version'
         type: boolean
         default: false
 
@@ -73,7 +75,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-    if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || github.event_name == 'workflow_dispatch'
+    if: (github.event_name == 'push' && github.ref_type == 'tag') || github.event_name == 'workflow_dispatch'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
