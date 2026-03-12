@@ -128,10 +128,12 @@ jobs:
           sed -i "s|hash = \"sha256-.*\"; # linux-arm64|hash = \"${LINUX_ARM_HASH}\"; # linux-arm64|" flake.nix
           sed -i "s|hash = \"sha256-.*\"; # linux-x64|hash = \"${LINUX_X64_HASH}\"; # linux-x64|" flake.nix
           
-          # Commit and push flake.nix
-          git add flake.nix
-          git commit -m "chore: update binary hashes for ${TAG}"
-          git push origin main
+          # Only commit flake.nix updates when on main branch (not on tag)
+          if [ "${{ github.ref_type }}" = "branch" ]; then
+            git add flake.nix
+            git commit -m "chore: update binary hashes for ${TAG}"
+            git push origin main
+          fi
           
           # Check if we should create a release
           if git ls-remote --tags origin | grep -q "refs/tags/${TAG}$"; then
