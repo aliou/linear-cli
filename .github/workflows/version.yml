@@ -107,6 +107,10 @@ jobs:
           VERSION=$(jq -r '.version' package.json)
           TAG="v${VERSION}"
           
+          # Configure git user
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
           # Build binaries
           bun run build
           
