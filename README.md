@@ -95,6 +95,21 @@ linear issue get ENG-123
 # Create an issue
 linear issue create --team ENG --title "Fix bug" --priority 2
 
+# Create an issue with assignee and delegate/agent
+linear issue create --team ENG --title "Fix bug" --assignee me --agent "Linear AI"
+
+# Update an issue to assign a delegate/agent
+linear issue update ENG-123 --delegate "agent@example.com"
+
+# Clear delegate from an issue
+linear issue update ENG-123 --delegate none
+
+# List issues filtered by delegate/agent
+linear issue list --agent "Linear AI"
+
+# List users to discover agents (look for app=true)
+linear user list
+
 # Close an issue
 linear issue close ENG-456
 
@@ -160,6 +175,51 @@ Place a config file in your project directory to set defaults per-project. Searc
 ```
 
 Local config overrides global config for `defaultTeamKey` and `outputFormat`.
+
+## Agent Delegation
+
+Linear supports delegating issues to AI agents (app users). The CLI provides first-class support for this:
+
+### Discovering Agents
+
+```sh
+# List all users, agents will have app=true
+linear user list
+
+# Get details for a specific user
+linear user get <uuid>
+```
+
+### Assigning Agents to Issues
+
+```sh
+# Create an issue with an agent
+linear issue create --team ENG --title "Research" --agent "Linear AI"
+
+# Assign an agent to an existing issue
+linear issue update ENG-123 --delegate "agent@example.com"
+
+# Clear the agent from an issue
+linear issue update ENG-123 --agent none
+```
+
+### Filtering by Agent
+
+```sh
+# List issues assigned to a specific agent
+linear issue list --agent "Linear AI"
+
+# List issues with no agent
+linear issue list --agent none
+```
+
+Both `--delegate` and `--agent` flags are aliases and accept:
+- UUID of the agent user
+- Email address
+- Display name or name
+- `none` to clear the assignment
+
+Note: Only users with `app=true` can be assigned as delegates. Regular users cannot be delegates.
 
 ## License
 

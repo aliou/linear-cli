@@ -6,11 +6,20 @@ import {
   parseArgs,
   wantsHelp,
 } from "../args.ts";
-import { pad, printTable, requireToken, useJson } from "./shared.ts";
+import {
+  pad,
+  printTable,
+  requireToken,
+  resolveAssignee,
+  resolveDelegate,
+  useJson,
+} from "./shared.ts";
 
 const ISSUE_OPTIONS = {
   team: { type: "string" as const },
   assignee: { type: "string" as const },
+  delegate: { type: "string" as const },
+  agent: { type: "string" as const, alias: "delegate" },
   state: { type: "string" as const },
   label: { type: "string" as const },
   limit: { type: "string" as const },
@@ -33,7 +42,9 @@ List issues with optional filters.
 
 Options:
   --team <key>       Filter by team key
-  --assignee <val>   Filter by assignee ("me" or email)
+  --assignee <val>   Filter by assignee ("me", email, UUID, or name)
+  --delegate <val>   Filter by delegate/agent (UUID, email, or name)
+  --agent <val>      Alias for --delegate
   --state <name>     Filter by state name
   --label <name>     Filter by label name
   --limit <n>        Max results (default: 50)
@@ -47,16 +58,55 @@ Options:
   const json = await useJson(parsed);
 
   const team = getString(parsed, "team");
-  const assignee = getString(parsed, "assignee");
+  const assigneeRaw = getString(parsed, "assignee");
+  const delegateRaw =
+    getString(parsed, "delegate") ?? getString(parsed, "agent");
   const state = getString(parsed, "state");
   const label = getString(parsed, "label");
   const limit = getNumber(parsed, "limit") ?? 50;
 
   const filter: Record<string, unknown> = {};
   if (team) filter.team = { key: { eq: team } };
-  if (assignee) {
-    filter.assignee =
-      assignee === "me" ? { isMe: { eq: true } } : { email: { eq: assignee } };
+  if (assigneeRaw) {
+    if (assigneeRaw.toLowerCase() === "me") {
+      filter.assignee = { isMe: { eq: true } };
+    } else if (assigneeRaw.toLowerCase() === "none") {
+      filter.assignee = { null: true };
+    } else {
+      // Resolve the assignee
+      try {
+        const assigneeId = await resolveAssignee(token, assigneeRaw);
+        if (assigneeId) {
+          filter.assignee = { id: { eq: assigneeId } };
+        } else {
+          filter.assignee = { null: true };
+        }
+      } catch (err) {
+        console.error(
+          `Error: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        process.exit(1);
+      }
+    }
+  }
+  if (delegateRaw) {
+    if (delegateRaw.toLowerCase() === "none") {
+      filter.delegate = { null: true };
+    } else {
+      try {
+        const delegateId = await resolveDelegate(token, delegateRaw);
+        if (delegateId) {
+          filter.delegate = { id: { eq: delegateId } };
+        } else {
+          filter.delegate = { null: true };
+        }
+      } catch (err) {
+        console.error(
+          `Error: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        process.exit(1);
+      }
+    }
   }
   if (state) filter.state = { name: { eqIgnoreCase: state } };
   if (label) filter.labels = { name: { eqIgnoreCase: label } };
@@ -72,6 +122,7 @@ Options:
           priorityLabel
           state { name type }
           assignee { name email }
+          delegate { name email app }
           team { key name }
           labels { nodes { name } }
           createdAt
@@ -91,6 +142,7 @@ Options:
         priorityLabel: string;
         state: { name: string; type: string };
         assignee: { name: string; email: string } | null;
+        delegate: { name: string; email: string; app: boolean } | null;
         team: { key: string; name: string };
         labels: { nodes: Array<{ name: string }> };
         createdAt: string;
@@ -111,13 +163,21 @@ Options:
     return;
   }
 
-  const headers = ["IDENTIFIER", "TITLE", "STATE", "PRIORITY", "ASSIGNEE"];
+  const headers = [
+    "IDENTIFIER",
+    "TITLE",
+    "STATE",
+    "PRIORITY",
+    "ASSIGNEE",
+    "AGENT",
+  ];
   const rows = issues.map((issue) => [
     issue.identifier,
     issue.title,
     issue.state.name,
     issue.priorityLabel,
     issue.assignee?.name ?? "",
+    issue.delegate?.name ?? "",
   ]);
 
   printTable(headers, rows);
@@ -159,6 +219,7 @@ Options:
         priorityLabel
         state { name type }
         assignee { name email }
+        delegate { name email app }
         team { key name }
         project { name }
         cycle { number name }
@@ -182,6 +243,7 @@ Options:
       priorityLabel: string;
       state: { name: string; type: string };
       assignee: { name: string; email: string } | null;
+      delegate: { name: string; email: string; app: boolean } | null;
       team: { key: string; name: string };
       project: { name: string } | null;
       cycle: { number: number; name: string } | null;
@@ -217,6 +279,12 @@ Options:
       "Assignee",
       issue.assignee ? `${issue.assignee.name} <${issue.assignee.email}>` : "",
     ],
+    [
+      "Agent",
+      issue.delegate
+        ? `${issue.delegate.name} <${issue.delegate.email}>${issue.delegate.app ? " (app)" : ""}`
+        : "",
+    ],
     ["Project", issue.project?.name ?? ""],
     ["Cycle", issue.cycle ? `#${issue.cycle.number} ${issue.cycle.name}` : ""],
     ["Labels", issue.labels.nodes.map((l) => l.name).join(", ")],
@@ -250,7 +318,9 @@ Options:
   --title <title>       Issue title (required)
   --description <text>  Issue description
   --priority <0-4>      Priority (0=none, 1=urgent, 2=high, 3=medium, 4=low)
-  --assignee <id>       Assignee user ID
+  --assignee <val>      Assignee ("me", email, UUID, or name). Use "none" to clear.
+  --delegate <val>      Delegate/agent (UUID, email, or name of app user). Use "none" to clear.
+  --agent <val>         Alias for --delegate
   --state <id>          State ID
   --label <ids>         Label IDs (comma-separated)
   --project <id>        Project ID
@@ -305,8 +375,36 @@ Options:
   const priority = getNumber(parsed, "priority");
   if (priority != null) input.priority = priority;
 
-  const assignee = getString(parsed, "assignee");
-  if (assignee) input.assigneeId = assignee;
+  const assigneeRaw = getString(parsed, "assignee");
+  if (assigneeRaw) {
+    try {
+      const assigneeId = await resolveAssignee(token, assigneeRaw);
+      if (assigneeId) {
+        input.assigneeId = assigneeId;
+      }
+    } catch (err) {
+      console.error(
+        `Error: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      process.exit(1);
+    }
+  }
+
+  const delegateRaw =
+    getString(parsed, "delegate") ?? getString(parsed, "agent");
+  if (delegateRaw) {
+    try {
+      const delegateId = await resolveDelegate(token, delegateRaw);
+      if (delegateId) {
+        input.delegateId = delegateId;
+      }
+    } catch (err) {
+      console.error(
+        `Error: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      process.exit(1);
+    }
+  }
 
   const state = getString(parsed, "state");
   if (state) input.stateId = state;
@@ -330,6 +428,8 @@ Options:
           title
           state { name }
           team { key }
+          assignee { name email }
+          delegate { name email app }
           url
         }
       }
@@ -345,6 +445,8 @@ Options:
         title: string;
         state: { name: string };
         team: { key: string };
+        assignee: { name: string; email: string } | null;
+        delegate: { name: string; email: string; app: boolean } | null;
         url: string;
       };
     };
@@ -364,6 +466,12 @@ Options:
 
   console.log(`Created ${issue.identifier}: ${issue.title}`);
   console.log(`State: ${issue.state.name}`);
+  if (issue.assignee) {
+    console.log(`Assignee: ${issue.assignee.name} <${issue.assignee.email}>`);
+  }
+  if (issue.delegate) {
+    console.log(`Agent: ${issue.delegate.name} <${issue.delegate.email}>`);
+  }
   console.log(`URL: ${issue.url}`);
 }
 
@@ -381,7 +489,9 @@ Options:
   --description <text>  New description
   --priority <0-4>      New priority
   --state <id>          New state ID
-  --assignee <id>       New assignee user ID
+  --assignee <val>      New assignee ("me", email, UUID, or name). Use "none" to clear.
+  --delegate <val>      New delegate/agent (UUID, email, or name of app user). Use "none" to clear.
+  --agent <val>         Alias for --delegate
   --label <ids>         New label IDs (comma-separated)
   --project <id>        New project ID
   --estimate <n>        New estimate value
@@ -414,8 +524,42 @@ Options:
   const state = getString(parsed, "state");
   if (state) input.stateId = state;
 
-  const assignee = getString(parsed, "assignee");
-  if (assignee) input.assigneeId = assignee;
+  const assigneeRaw = getString(parsed, "assignee");
+  if (assigneeRaw) {
+    try {
+      const assigneeId = await resolveAssignee(token, assigneeRaw);
+      if (assigneeId) {
+        input.assigneeId = assigneeId;
+      } else {
+        // Clearing assignee
+        input.assigneeId = null;
+      }
+    } catch (err) {
+      console.error(
+        `Error: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      process.exit(1);
+    }
+  }
+
+  const delegateRaw =
+    getString(parsed, "delegate") ?? getString(parsed, "agent");
+  if (delegateRaw) {
+    try {
+      const delegateId = await resolveDelegate(token, delegateRaw);
+      if (delegateId) {
+        input.delegateId = delegateId;
+      } else {
+        // Clearing delegate
+        input.delegateId = null;
+      }
+    } catch (err) {
+      console.error(
+        `Error: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      process.exit(1);
+    }
+  }
 
   const label = getString(parsed, "label");
   if (label) input.labelIds = label.split(",");
@@ -440,6 +584,8 @@ Options:
           identifier
           title
           state { name }
+          assignee { name email }
+          delegate { name email app }
           url
         }
       }
@@ -454,6 +600,8 @@ Options:
         identifier: string;
         title: string;
         state: { name: string };
+        assignee: { name: string; email: string } | null;
+        delegate: { name: string; email: string; app: boolean } | null;
         url: string;
       };
     };
@@ -473,6 +621,12 @@ Options:
 
   console.log(`Updated ${issue.identifier}: ${issue.title}`);
   console.log(`State: ${issue.state.name}`);
+  if (issue.assignee) {
+    console.log(`Assignee: ${issue.assignee.name} <${issue.assignee.email}>`);
+  }
+  if (issue.delegate) {
+    console.log(`Agent: ${issue.delegate.name} <${issue.delegate.email}>`);
+  }
   console.log(`URL: ${issue.url}`);
 }
 

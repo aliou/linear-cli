@@ -1,6 +1,6 @@
 import { graphql } from "../api.ts";
 import { getNumber, getPositional, parseArgs, wantsHelp } from "../args.ts";
-import { printTable, requireToken, useJson } from "./shared.ts";
+import { pad, printTable, requireToken, useJson } from "./shared.ts";
 
 const USER_OPTIONS = {
   limit: { type: "string" as const },
@@ -14,6 +14,7 @@ interface User {
   displayName: string;
   active: boolean;
   admin: boolean;
+  app: boolean;
   avatarUrl?: string;
   createdAt: string;
   updatedAt?: string;
@@ -50,6 +51,7 @@ Options:
           displayName
           active
           admin
+          app
           createdAt
         }
       }
@@ -72,12 +74,13 @@ Options:
     return;
   }
 
-  const headers = ["NAME", "EMAIL", "ACTIVE", "ADMIN"];
+  const headers = ["NAME", "EMAIL", "ACTIVE", "ADMIN", "APP"];
   const rows = users.map((u) => [
     u.name,
     u.email,
     String(u.active),
     String(u.admin),
+    String(u.app),
   ]);
 
   printTable(headers, rows);
@@ -121,6 +124,7 @@ Options:
         displayName
         active
         admin
+        app
         avatarUrl
         createdAt
         updatedAt
@@ -167,6 +171,7 @@ Options:
         displayName
         active
         admin
+        app
         avatarUrl
         createdAt
         updatedAt
@@ -186,17 +191,23 @@ Options:
 }
 
 function printUserDetail(user: User): void {
-  console.log(`Name:         ${user.name}`);
-  console.log(`Display name: ${user.displayName}`);
-  console.log(`ID:           ${user.id}`);
-  console.log(`Email:        ${user.email}`);
-  console.log(`Active:       ${user.active}`);
-  console.log(`Admin:        ${user.admin}`);
+  const maxKey = Math.max(
+    "Display name".length,
+    "Email".length,
+    "Created".length,
+  );
+  console.log(`${pad("Name", maxKey)}         ${user.name}`);
+  console.log(`${pad("Display name", maxKey)}  ${user.displayName}`);
+  console.log(`${pad("ID", maxKey)}           ${user.id}`);
+  console.log(`${pad("Email", maxKey)}        ${user.email}`);
+  console.log(`${pad("Active", maxKey)}       ${String(user.active)}`);
+  console.log(`${pad("Admin", maxKey)}        ${String(user.admin)}`);
+  console.log(`${pad("App/Agent", maxKey)}    ${String(user.app)}`);
   if (user.avatarUrl) {
-    console.log(`Avatar:       ${user.avatarUrl}`);
+    console.log(`${pad("Avatar", maxKey)}       ${user.avatarUrl}`);
   }
-  console.log(`Created:      ${user.createdAt}`);
+  console.log(`${pad("Created", maxKey)}      ${user.createdAt}`);
   if (user.updatedAt) {
-    console.log(`Updated:      ${user.updatedAt}`);
+    console.log(`${pad("Updated", maxKey)}      ${user.updatedAt}`);
   }
 }
