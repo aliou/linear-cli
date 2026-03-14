@@ -53,6 +53,7 @@ import { listStates } from "./commands/state";
 import { getTeam, listTeams } from "./commands/team";
 import { getUser, listUsers, me } from "./commands/user";
 import { getConfigPath } from "./config";
+import { printCliError } from "./errors";
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
@@ -593,6 +594,6 @@ async function handleSearch(
 }
 
 main().catch((err) => {
-  console.error(err);
+  printCliError(err);
   process.exit(1);
 });

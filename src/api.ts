@@ -4,6 +4,7 @@
 
 import type { ResolvedAuth } from "./config.ts";
 import { LINEAR_API_URL } from "./constants.ts";
+import { CliError } from "./errors.ts";
 import { refreshOAuthToken } from "./oauth.ts";
 
 export type { ResolvedAuth };
@@ -67,19 +68,42 @@ export async function graphql<T = unknown>(
 
   if (!response.ok) {
     if (response.status === 401) {
-      throw new Error("Invalid API token");
+      throw new CliError("Invalid API token", {
+        suggestion: "Run 'linear auth login' to save a valid token.",
+      });
     }
-    throw new Error(`Linear API error: ${response.statusText}`);
+
+    const body = await response.text();
+    const detail = body.trim();
+    const message = detail
+      ? `Linear API request failed with ${response.status} ${response.statusText}: ${detail}`
+      : `Linear API request failed with ${response.status} ${response.statusText}`;
+
+    throw new CliError(message);
   }
 
   const result = (await response.json()) as GraphQLResponse<T>;
 
   if (result.errors?.length) {
-    throw new Error(result.errors.map((e) => e.message).join(", "));
+    const firstMessage =
+      result.errors[0]?.message ?? "Unknown Linear API error";
+
+    if (
+      firstMessage === "Entity not found: Issue" &&
+      typeof variables?.id === "string" &&
+      variables.id.trim()
+    ) {
+      throw new CliError(`Issue not found: ${variables.id}`, {
+        suggestion:
+          "Use a valid issue identifier like ENG-123 or a Linear issue UUID.",
+      });
+    }
+
+    throw new CliError(result.errors.map((e) => e.message).join(", "));
   }
 
   if (!result.data) {
-    throw new Error("No data returned from Linear API");
+    throw new CliError("No data returned from Linear API");
   }
 
   return result.data;
