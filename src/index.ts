@@ -5,9 +5,53 @@ import {
   logout,
   promptForToken,
   readTokenFromStdin,
-} from "./auth.js";
-import { parseArgs, printCompletion, printHelp, printVersion } from "./cli.js";
-import { getConfigPath } from "./config.js";
+} from "./auth";
+import { parseArgs, printCompletion, printHelp, printVersion } from "./cli";
+import {
+  createComment,
+  deleteComment,
+  listComments,
+  updateComment,
+} from "./commands/comment";
+import { getCycle, listCycles } from "./commands/cycle";
+import {
+  createDocument,
+  deleteDocument,
+  getDocument,
+  listDocuments,
+  updateDocument,
+} from "./commands/document";
+import { getInitiative, listInitiatives } from "./commands/initiative";
+import {
+  closeIssue,
+  createIssue,
+  getIssue,
+  listIssues,
+  updateIssue,
+} from "./commands/issue";
+import {
+  createLabel,
+  deleteLabel,
+  listLabels,
+  updateLabel,
+} from "./commands/label";
+import {
+  createMilestone,
+  deleteMilestone,
+  getMilestone,
+  listMilestones,
+  updateMilestone,
+} from "./commands/milestone";
+import { getProject, listProjects } from "./commands/project";
+import {
+  searchDocuments,
+  searchIssues,
+  searchProjects,
+} from "./commands/search";
+import { listStates } from "./commands/state";
+import { getTeam, listTeams } from "./commands/team";
+import { getUser, listUsers, me } from "./commands/user";
+import { getConfigPath } from "./config";
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
@@ -225,9 +269,6 @@ async function handleIssue(
   subcommand: string | null,
   args: string[],
 ): Promise<void> {
-  const { listIssues, getIssue, createIssue, updateIssue, closeIssue } =
-    await import("./commands/issue.js");
-
   switch (subcommand) {
     case "list":
       await listIssues(args);
@@ -256,8 +297,6 @@ async function handleTeam(
   subcommand: string | null,
   args: string[],
 ): Promise<void> {
-  const { listTeams, getTeam } = await import("./commands/team.js");
-
   switch (subcommand) {
     case "list":
       await listTeams(args);
@@ -277,8 +316,6 @@ async function handleProject(
   subcommand: string | null,
   args: string[],
 ): Promise<void> {
-  const { listProjects, getProject } = await import("./commands/project.js");
-
   switch (subcommand) {
     case "list":
       await listProjects(args);
@@ -298,8 +335,6 @@ async function handleCycle(
   subcommand: string | null,
   args: string[],
 ): Promise<void> {
-  const { listCycles, getCycle } = await import("./commands/cycle.js");
-
   switch (subcommand) {
     case "list":
       await listCycles(args);
@@ -319,9 +354,6 @@ async function handleComment(
   subcommand: string | null,
   args: string[],
 ): Promise<void> {
-  const { listComments, createComment, updateComment, deleteComment } =
-    await import("./commands/comment.js");
-
   switch (subcommand) {
     case "list":
       await listComments(args);
@@ -347,14 +379,6 @@ async function handleDocument(
   subcommand: string | null,
   args: string[],
 ): Promise<void> {
-  const {
-    listDocuments,
-    getDocument,
-    createDocument,
-    updateDocument,
-    deleteDocument,
-  } = await import("./commands/document.js");
-
   switch (subcommand) {
     case "list":
       await listDocuments(args);
@@ -383,10 +407,6 @@ async function handleLabel(
   subcommand: string | null,
   args: string[],
 ): Promise<void> {
-  const { listLabels, createLabel, updateLabel, deleteLabel } = await import(
-    "./commands/label.js"
-  );
-
   switch (subcommand) {
     case "list":
       await listLabels(args);
@@ -412,14 +432,6 @@ async function handleMilestone(
   subcommand: string | null,
   args: string[],
 ): Promise<void> {
-  const {
-    listMilestones,
-    getMilestone,
-    createMilestone,
-    updateMilestone,
-    deleteMilestone,
-  } = await import("./commands/milestone.js");
-
   switch (subcommand) {
     case "list":
       await listMilestones(args);
@@ -448,10 +460,6 @@ async function handleInitiative(
   subcommand: string | null,
   args: string[],
 ): Promise<void> {
-  const { listInitiatives, getInitiative } = await import(
-    "./commands/initiative.js"
-  );
-
   switch (subcommand) {
     case "list":
       await listInitiatives(args);
@@ -471,8 +479,6 @@ async function handleUser(
   subcommand: string | null,
   args: string[],
 ): Promise<void> {
-  const { listUsers, getUser, me } = await import("./commands/user.js");
-
   switch (subcommand) {
     case "list":
       await listUsers(args);
@@ -495,8 +501,6 @@ async function handleState(
   subcommand: string | null,
   args: string[],
 ): Promise<void> {
-  const { listStates } = await import("./commands/state.js");
-
   switch (subcommand) {
     case "list":
       await listStates(args);
@@ -513,10 +517,6 @@ async function handleSearch(
   subcommand: string | null,
   args: string[],
 ): Promise<void> {
-  const { searchIssues, searchDocuments, searchProjects } = await import(
-    "./commands/search.js"
-  );
-
   switch (subcommand) {
     case "issues":
       await searchIssues(args);
