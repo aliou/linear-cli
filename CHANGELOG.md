@@ -1,5 +1,11 @@
 # linear-cli
 
+## 0.2.2
+
+### Patch Changes
+
+- 1fa7e49: Add OAuth token support to auth login and require explicit token type for non-interactive login via `--token` or stdin.
+
 ## 0.2.1
 
 ### Patch Changes
