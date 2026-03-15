@@ -20,15 +20,15 @@
       binaries = {
         "aarch64-darwin" = {
           url = "https://github.com/aliou/linear-cli/releases/download/v${version}/linear-darwin-arm64";
-          hash = "sha256-LLP350Gl23oE2litkx1Ldp3fGrRKG37v6PWTe9zlIy4="; # darwin
+          hash = "sha256-OSmWjZEu3KLbqRAk5MQSWDQ7pGq6F5/ZNJdWnDvastM="; # darwin
         };
         "aarch64-linux" = {
           url = "https://github.com/aliou/linear-cli/releases/download/v${version}/linear-linux-arm64";
-          hash = "sha256-ZQWMurYkWrK1K8SZwJrel98KuWPHZebxfdJ6fcTsqZI="; # linux-arm64
+          hash = "sha256-zVrz9INFsOmqxalY6dAP4VnEnu/y4Ge9k0IGJ86wITo="; # linux-arm64
         };
         "x86_64-linux" = {
           url = "https://github.com/aliou/linear-cli/releases/download/v${version}/linear-linux-x64";
-          hash = "sha256-crlPjU6aOpbJdNZi/jRQrfg0dZAtHVtyYLxWoO3flRk="; # linux-x64
+          hash = "sha256-mo9gXwcG7y9NmjAcqaHboX/spq7k5FTV8ZaJi+k2GA4="; # linux-x64
         };
       };
 
