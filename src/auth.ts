@@ -26,14 +26,28 @@ export interface LoginResult {
   error?: string;
 }
 
+export type TokenKind = "api" | "oauth";
+
+function formatTokenForApi(token: string, kind: TokenKind): string {
+  return kind === "oauth" ? `Bearer ${token}` : token;
+}
+
 /**
  * Perform login: validate token and store in config.
  */
-export async function login(token: string): Promise<LoginResult> {
+export async function login(
+  token: string,
+  kind: TokenKind,
+): Promise<LoginResult> {
   try {
-    const viewer = await fetchViewer(token);
+    const trimmedToken = token.trim();
+    const viewer = await fetchViewer(formatTokenForApi(trimmedToken, kind));
 
-    await updateConfig({ apiToken: token });
+    await updateConfig(
+      kind === "oauth"
+        ? { accessToken: trimmedToken, apiToken: undefined }
+        : { apiToken: trimmedToken, accessToken: undefined },
+    );
 
     return {
       success: true,
@@ -54,6 +68,7 @@ export async function login(token: string): Promise<LoginResult> {
 export async function logout(): Promise<void> {
   const config = await loadConfig();
   delete config.apiToken;
+  delete config.accessToken;
   delete config.defaultTeamKey;
   await saveConfig(config);
 }
@@ -64,9 +79,18 @@ export async function logout(): Promise<void> {
 export async function getAuthStatus(): Promise<AuthStatus> {
   await checkConfigPermissions();
 
-  const envToken = process.env.LINEAR_API_TOKEN;
+  const envOauthToken = process.env.LINEAR_OAUTH_TOKEN;
+  const envApiToken = process.env.LINEAR_API_TOKEN;
   const config = await loadConfig();
-  const token = envToken ?? config.apiToken;
+  const token = envOauthToken
+    ? formatTokenForApi(envOauthToken, "oauth")
+    : envApiToken
+      ? formatTokenForApi(envApiToken, "api")
+      : config.accessToken
+        ? formatTokenForApi(config.accessToken, "oauth")
+        : config.apiToken
+          ? formatTokenForApi(config.apiToken, "api")
+          : undefined;
 
   if (!token) {
     return {
@@ -75,7 +99,7 @@ export async function getAuthStatus(): Promise<AuthStatus> {
     };
   }
 
-  const tokenSource = envToken ? "env" : "config";
+  const tokenSource = envOauthToken || envApiToken ? "env" : "config";
 
   try {
     const viewer = await fetchViewer(token);
@@ -119,7 +143,7 @@ export async function readTokenFromStdin(): Promise<string | null> {
  * Prompt for token interactively.
  */
 export async function promptForToken(): Promise<string> {
-  process.stdout.write("Enter API token: ");
+  process.stdout.write("Enter token: ");
 
   return new Promise((resolve) => {
     let input = "";
@@ -130,6 +154,26 @@ export async function promptForToken(): Promise<string> {
         process.stdin.pause();
         resolve(input.trim());
       }
+    });
+    process.stdin.resume();
+  });
+}
+
+export async function promptForTokenKind(): Promise<TokenKind> {
+  process.stdout.write("Token type [api/oauth]: ");
+
+  return new Promise((resolve) => {
+    let input = "";
+    process.stdin.setEncoding("utf-8");
+    process.stdin.on("data", (chunk) => {
+      input += chunk;
+      if (!input.includes("\n")) {
+        return;
+      }
+
+      process.stdin.pause();
+      const value = input.trim().toLowerCase();
+      resolve(value === "oauth" || value === "o" ? "oauth" : "api");
     });
     process.stdin.resume();
   });

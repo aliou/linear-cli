@@ -9,8 +9,11 @@ import { dirname, join } from "node:path";
 import { CONFIG_FILE } from "./constants.ts";
 
 export interface Config {
-  // API token from Linear settings
+  // Personal API token from Linear settings
   apiToken?: string;
+
+  // OAuth token from a Linear app
+  accessToken?: string;
 
   // Default team key (e.g. "ENG")
   defaultTeamKey?: string;
@@ -68,6 +71,10 @@ export function validateConfig(data: unknown): Config {
 
   if (typeof obj.apiToken === "string") {
     config.apiToken = obj.apiToken;
+  }
+
+  if (typeof obj.accessToken === "string") {
+    config.accessToken = obj.accessToken;
   }
 
   if (typeof obj.defaultTeamKey === "string") {
@@ -148,16 +155,24 @@ export async function updateConfig(updates: Partial<Config>): Promise<Config> {
 }
 
 /**
- * Get the API token, checking env var first, then config file.
+ * Get the auth token, checking env vars first, then config file.
  */
 export async function getApiToken(): Promise<string | undefined> {
-  // Environment variable takes precedence
-  const envToken = process.env.LINEAR_API_TOKEN;
-  if (envToken) {
-    return envToken;
+  const envOauthToken = process.env.LINEAR_OAUTH_TOKEN;
+  if (envOauthToken) {
+    return `Bearer ${envOauthToken}`;
+  }
+
+  const envApiToken = process.env.LINEAR_API_TOKEN;
+  if (envApiToken) {
+    return envApiToken;
   }
 
   const config = await loadConfig();
+  if (config.accessToken) {
+    return `Bearer ${config.accessToken}`;
+  }
+
   return config.apiToken;
 }
 

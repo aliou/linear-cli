@@ -41,23 +41,34 @@ bun run src/index.ts --help
 
 ## Authentication
 
-Get an API token from **Linear Settings > API > Personal API keys**.
+Get a personal API token from **Linear Settings > API > Personal API keys**, or use an OAuth token from a Linear app.
 
 ```sh
 # Interactive login
 linear auth login
 
 # With token directly
-linear auth login --token <token>
+linear auth login --type api --token <token>
+linear auth login --type oauth --token <token>
 
-# Via environment variable
+# Via API token environment variable
 export LINEAR_API_TOKEN=<token>
 
+# Via OAuth token environment variable
+export LINEAR_OAUTH_TOKEN=<token>
+
 # Via pipe
-echo <token> | linear auth login
+echo <token> | linear auth login --type api
+echo <token> | linear auth login --type oauth
 ```
 
-Token is stored in `~/.config/linear-cli/config.json` with `0600` permissions.
+Interactive `linear auth login` asks whether the token is an API token or an OAuth token before validating and saving it.
+
+When using `--token` or stdin, pass `--type api` or `--type oauth`.
+
+You do not need a special `-` argument for stdin. Piped input is detected automatically.
+
+Config is stored in `~/.config/linear-cli/config.json` with `0600` permissions.
 
 ## Usage
 
@@ -154,6 +165,7 @@ Stored at `~/.config/linear-cli/config.json`:
 ```json
 {
   "apiToken": "...",
+  "accessToken": "...",
   "defaultTeamKey": "ENG",
   "outputFormat": "table"
 }

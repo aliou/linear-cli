@@ -4,6 +4,7 @@ import {
   login,
   logout,
   promptForToken,
+  promptForTokenKind,
   readTokenFromStdin,
 } from "./auth";
 import { parseArgs, printCompletion, printHelp, printVersion } from "./cli";
@@ -126,8 +127,13 @@ async function main(): Promise<void> {
   }
 }
 
-function parseAuthArgs(args: string[]): { token?: string; help: boolean } {
+function parseAuthArgs(args: string[]): {
+  token?: string;
+  type?: "api" | "oauth";
+  help: boolean;
+} {
   let token: string | undefined;
+  let type: "api" | "oauth" | undefined;
   let help = false;
 
   for (let i = 0; i < args.length; i++) {
@@ -139,10 +145,21 @@ function parseAuthArgs(args: string[]): { token?: string; help: boolean } {
       i++;
     } else if (arg?.startsWith("--token=")) {
       token = arg.slice(8);
+    } else if (arg === "--type" && args[i + 1]) {
+      const value = args[i + 1];
+      if (value === "api" || value === "oauth") {
+        type = value;
+      }
+      i++;
+    } else if (arg?.startsWith("--type=")) {
+      const value = arg.slice(7);
+      if (value === "api" || value === "oauth") {
+        type = value;
+      }
     }
   }
 
-  return { token, help };
+  return { token, type, help };
 }
 
 async function handleAuth(
@@ -155,13 +172,16 @@ async function handleAuth(
     case "login": {
       if (parsed.help) {
         console.log(`
-Usage: linear auth login [--token <token>]
+Usage: linear auth login [--token <token>] [--type <api|oauth>]
 
-Authenticate with Linear using an API token.
+Authenticate with Linear using an API token or an OAuth token.
 
 Options:
-  --token <token>  API token (can also be piped via stdin)
-  -h, --help       Show this help
+  --token <token>         Token value
+  --type <api|oauth>      Required with --token or stdin
+  -h, --help              Show this help
+
+Interactive login will ask for the token type first.
 
 Get your API token from:
   Linear Settings > API > Personal API keys
@@ -171,21 +191,35 @@ Get your API token from:
 
       let token = parsed.token;
 
-      if (!token) {
+      if (token) {
+        if (!parsed.type) {
+          console.error("Error: --type <api|oauth> is required with --token");
+          process.exit(1);
+        }
+      } else {
+        if (!process.stdin.isTTY && !parsed.type) {
+          console.error(
+            "Error: --type <api|oauth> is required when reading token from stdin",
+          );
+          process.exit(1);
+        }
+
         token = (await readTokenFromStdin()) ?? undefined;
       }
+
+      const kind = parsed.type ?? (await promptForTokenKind());
 
       if (!token) {
         token = await promptForToken();
       }
 
       if (!token) {
-        console.error("Error: No API token provided");
+        console.error("Error: No token provided");
         process.exit(1);
       }
 
       console.log("Validating token...");
-      const result = await login(token);
+      const result = await login(token, kind);
 
       if (result.success) {
         console.log(`Authenticated as: ${result.name}`);
