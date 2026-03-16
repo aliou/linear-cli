@@ -1,5 +1,17 @@
 # linear-cli
 
+## 0.3.0
+
+### Minor Changes
+
+- 392cd95: Add a top-level `graphql` command to run arbitrary Linear GraphQL queries and mutations from a positional argument or stdin.
+- 7ce12da: Add refreshable OAuth config support, write a versioned `$schema` entry to config.json, and document the nested OAuth config format.
+
+### Patch Changes
+
+- 1783870: Inject the CLI version at build time so release artifacts use the package.json version without rewriting source files during runtime.
+- 9d8c9b2: Improve CLI error output for failed API requests.
+
 ## 0.2.2
 
 ### Patch Changes
