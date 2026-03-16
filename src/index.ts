@@ -7,7 +7,13 @@ import {
   promptForTokenKind,
   readTokenFromStdin,
 } from "./auth";
-import { parseArgs, printCompletion, printHelp, printVersion } from "./cli";
+import {
+  type CliOptions,
+  parseArgs,
+  printCompletion,
+  printHelp,
+  printVersion,
+} from "./cli";
 import {
   createComment,
   deleteComment,
@@ -22,6 +28,7 @@ import {
   listDocuments,
   updateDocument,
 } from "./commands/document";
+import { runGraphql } from "./commands/graphql";
 import { getInitiative, listInitiatives } from "./commands/initiative";
 import {
   closeIssue,
@@ -120,6 +127,9 @@ async function main(): Promise<void> {
       break;
     case "search":
       await handleSearch(options.subcommand, subcommandArgs);
+      break;
+    case "graphql":
+      await handleGraphql(getGraphqlArgs(options));
       break;
     default:
       console.error(`Unknown command: ${options.command}`);
@@ -591,6 +601,18 @@ async function handleSearch(
       );
       process.exit(1);
   }
+}
+
+async function handleGraphql(args: string[]): Promise<void> {
+  await runGraphql(args);
+}
+
+function getGraphqlArgs(options: CliOptions): string[] {
+  return [
+    ...(options.help ? ["--help"] : []),
+    ...(options.subcommand ? [options.subcommand] : []),
+    ...options.args,
+  ];
 }
 
 main().catch((err) => {

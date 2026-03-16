@@ -130,6 +130,7 @@ linear <command> <subcommand> [flags]
 | `user` | `list`, `get`, `me` | User operations |
 | `state` | `list` | Workflow state operations |
 | `search` | `issues`, `documents`, `projects` | Search |
+| `graphql` | - | Run arbitrary GraphQL queries and mutations |
 
 ### Examples
 
@@ -169,6 +170,16 @@ linear project list --status started
 
 # JSON output
 linear issue list --json
+
+# Run an arbitrary GraphQL query
+linear graphql 'query { viewer { id name email } }'
+
+# Run GraphQL with variables
+linear graphql 'query Issue($id: String!) { issue(id: $id) { id title } }' \
+  --variables '{"id":"ENG-123"}'
+
+# Or pipe a query via stdin
+echo 'query { viewer { id name } }' | linear graphql
 ```
 
 ### Global flags

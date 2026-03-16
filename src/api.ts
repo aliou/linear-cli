@@ -39,22 +39,27 @@ async function doGraphQL(
   });
 }
 
+function truncateDetail(value: string, maxLength = 200): string {
+  return value.length > maxLength
+    ? `${value.slice(0, maxLength - 3)}...`
+    : value;
+}
+
 /**
- * Execute a GraphQL query against the Linear API.
+ * Execute a GraphQL request against the Linear API and return the raw GraphQL response.
  *
  * When passed a ResolvedAuth from config with a refreshToken, a 401 response
  * will trigger a single token-refresh attempt followed by a retry.
  * Tokens from environment variables are never refreshed automatically.
  */
-export async function graphql<T = unknown>(
+export async function graphqlRequest<T = unknown>(
   auth: string | ResolvedAuth,
   query: string,
   variables?: Record<string, unknown>,
-): Promise<T> {
+): Promise<GraphQLResponse<T>> {
   let currentHeader = authHeader(auth);
   let response = await doGraphQL(currentHeader, query, variables);
 
-  // Attempt a token refresh on 401 for config-backed OAuth tokens with a refresh token
   if (
     response.status === 401 &&
     typeof auth !== "string" &&
@@ -74,7 +79,7 @@ export async function graphql<T = unknown>(
     }
 
     const body = await response.text();
-    const detail = body.trim();
+    const detail = truncateDetail(body.trim());
     const message = detail
       ? `Linear API request failed with ${response.status} ${response.statusText}: ${detail}`
       : `Linear API request failed with ${response.status} ${response.statusText}`;
@@ -82,21 +87,34 @@ export async function graphql<T = unknown>(
     throw new CliError(message);
   }
 
-  const result = (await response.json()) as GraphQLResponse<T>;
+  return (await response.json()) as GraphQLResponse<T>;
+}
+
+/**
+ * Execute a GraphQL query against the Linear API.
+ */
+export async function graphql<T = unknown>(
+  auth: string | ResolvedAuth,
+  query: string,
+  variables?: Record<string, unknown>,
+): Promise<T> {
+  const result = await graphqlRequest<T>(auth, query, variables);
 
   if (result.errors?.length) {
     const firstMessage =
       result.errors[0]?.message ?? "Unknown Linear API error";
+    const entityNotFoundMatch = /^Entity not found: (.+)$/.exec(firstMessage);
 
-    if (
-      firstMessage === "Entity not found: Issue" &&
-      typeof variables?.id === "string" &&
-      variables.id.trim()
-    ) {
-      throw new CliError(`Issue not found: ${variables.id}`, {
-        suggestion:
-          "Use a valid issue identifier like ENG-123 or a Linear issue UUID.",
-      });
+    if (entityNotFoundMatch) {
+      const entityName = entityNotFoundMatch[1] ?? "Entity";
+      const identifier =
+        typeof variables?.id === "string" ? variables.id.trim() : "";
+
+      if (identifier) {
+        throw new CliError(`${entityName} not found: ${identifier}`, {
+          suggestion: `Use a valid ${entityName.toLowerCase()} identifier or UUID.`,
+        });
+      }
     }
 
     throw new CliError(result.errors.map((e) => e.message).join(", "));

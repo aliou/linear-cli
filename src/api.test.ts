@@ -341,3 +341,54 @@ describe("graphql() with plain string token", () => {
     }
   });
 });
+
+describe("graphql() error handling", () => {
+  test("truncates large non-JSON HTTP error bodies", async () => {
+    const fetchMock = mock(
+      async () =>
+        new Response("x".repeat(400), {
+          status: 503,
+          statusText: "Service Unavailable",
+        }),
+    );
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    try {
+      await expect(
+        graphql("Bearer test-token", "query { viewer { id } }"),
+      ).rejects.toThrow(
+        /Linear API request failed with 503 Service Unavailable: x{50}/,
+      );
+      await expect(
+        graphql("Bearer test-token", "query { viewer { id } }"),
+      ).rejects.not.toThrow(/x{250}/);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("surfaces generic entity-not-found hints using the provided id variable", async () => {
+    const fetchMock = mock(async () =>
+      makeJsonResponse({
+        errors: [{ message: "Entity not found: Project" }],
+      }),
+    );
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    try {
+      await expect(
+        graphql(
+          "Bearer test-token",
+          "query Project($id: String!) { project(id: $id) { id } }",
+          {
+            id: "project-123",
+          },
+        ),
+      ).rejects.toThrow("Project not found: project-123");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});

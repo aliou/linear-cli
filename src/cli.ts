@@ -93,6 +93,7 @@ ${bold("Commands:")}
   user        User operations ${dim("(list, get, me)")}
   state       Workflow state operations ${dim("(list)")}
   search      Search ${dim("(issues, documents, projects)")}
+  graphql     Run arbitrary GraphQL ${dim("(query or mutation)")}
 
 ${bold("Flags:")}
   -h, --help       Show help
@@ -106,6 +107,7 @@ ${bold("Examples:")}
   ${APP_NAME} issue create --team ENG --title "Fix bug"
   ${APP_NAME} team list
   ${APP_NAME} project list
+  ${APP_NAME} graphql 'query { viewer { id name email } }'
 
 ${bold("Configuration:")}
   Config file: ~/.config/linear-cli/config.json
@@ -125,7 +127,7 @@ _${APP_NAME}_completions() {
     cur="\${COMP_WORDS[COMP_CWORD]}"
     prev="\${COMP_WORDS[COMP_CWORD-1]}"
 
-    local commands="auth issue team project cycle comment document label milestone initiative user state search"
+    local commands="auth issue team project cycle comment document label milestone initiative user state search graphql"
     local auth_cmds="login logout status"
     local issue_cmds="list get create update close"
     local team_cmds="list get"
@@ -220,6 +222,7 @@ _${APP_NAME}() {
         'user:User operations'
         'state:Workflow state operations'
         'search:Search'
+        'graphql:Run arbitrary GraphQL'
     )
 
     auth_cmds=('login:Authenticate with API token' 'logout:Remove stored credentials' 'status:Show auth status')
@@ -300,6 +303,7 @@ complete -c ${APP_NAME} -n __fish_use_subcommand -a initiative -d 'Initiative op
 complete -c ${APP_NAME} -n __fish_use_subcommand -a user -d 'User operations'
 complete -c ${APP_NAME} -n __fish_use_subcommand -a state -d 'Workflow state operations'
 complete -c ${APP_NAME} -n __fish_use_subcommand -a search -d 'Search'
+complete -c ${APP_NAME} -n __fish_use_subcommand -a graphql -d 'Run arbitrary GraphQL'
 
 # auth subcommands
 complete -c ${APP_NAME} -n '__fish_seen_subcommand_from auth' -a login -d 'Authenticate with API token'

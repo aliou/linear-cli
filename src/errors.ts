@@ -1,15 +1,13 @@
 export class CliError extends Error {
   readonly suggestion?: string;
-  readonly cause?: unknown;
 
   constructor(
     message: string,
     options?: { suggestion?: string; cause?: unknown },
   ) {
-    super(message);
+    super(message, { cause: options?.cause });
     this.name = "CliError";
     this.suggestion = options?.suggestion;
-    this.cause = options?.cause;
   }
 }
 

@@ -61,7 +61,7 @@ export function parseArgs(
  * Check if help flag is set.
  */
 export function wantsHelp(parsed: ParsedArgs): boolean {
-  return Boolean(parsed.values.help || parsed.values.h);
+  return Boolean(parsed.values.help);
 }
 
 /**
