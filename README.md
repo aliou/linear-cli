@@ -51,6 +51,11 @@ linear auth login
 linear auth login --type api --token <token>
 linear auth login --type oauth --token <token>
 
+# With OAuth refresh token and expiry (optional, enables automatic token refresh)
+linear auth login --type oauth --token <token> \
+  --refresh-token <refresh-token> \
+  --expires-at <iso-timestamp>
+
 # Via API token environment variable
 export LINEAR_API_TOKEN=<token>
 
@@ -69,6 +74,38 @@ When using `--token` or stdin, pass `--type api` or `--type oauth`.
 You do not need a special `-` argument for stdin. Piped input is detected automatically.
 
 Config is stored in `~/.config/linear-cli/config.json` with `0600` permissions.
+
+### Config format
+
+```json
+{
+  "$schema": "https://raw.githubusercontent.com/aliou/linear-cli/v0.2.2/schemas/config.schema.json",
+  "apiToken": "...",
+  "oauth": {
+    "access": "...",
+    "refresh": "...",
+    "expiresAt": "2025-01-01T00:00:00.000Z",
+    "clientId": "...",
+    "clientSecret": "..."
+  },
+  "defaultTeamKey": "ENG",
+  "outputFormat": "table"
+}
+```
+
+`apiToken` is used for a regular personal API key. OAuth credentials are stored under `oauth.access`, `oauth.refresh`, and `oauth.expiresAt`. All fields are optional and the file is backward compatible.
+
+The CLI writes and updates `$schema` automatically, pointing to the schema file for the CLI version used to write the config.
+
+### Automatic OAuth token refresh
+
+When a config-stored OAuth token has an `oauth.refresh` value, the CLI will automatically refresh it on a 401 response and retry the request once.
+
+Refresh credentials are resolved in this order:
+1. `LINEAR_CLIENT_ID` + `LINEAR_CLIENT_SECRET` from the environment
+2. `oauth.clientId` + `oauth.clientSecret` from `~/.config/linear-cli/config.json`
+
+> Note: storing `oauth.clientSecret` in the config file is convenient, but it is still a secret. The CLI stores the config with `0600` permissions.
 
 ## Usage
 
@@ -164,8 +201,15 @@ Stored at `~/.config/linear-cli/config.json`:
 
 ```json
 {
+  "$schema": "https://raw.githubusercontent.com/aliou/linear-cli/v0.2.2/schemas/config.schema.json",
   "apiToken": "...",
-  "accessToken": "...",
+  "oauth": {
+    "access": "...",
+    "refresh": "...",
+    "expiresAt": "2025-01-01T00:00:00.000Z",
+    "clientId": "...",
+    "clientSecret": "..."
+  },
   "defaultTeamKey": "ENG",
   "outputFormat": "table"
 }

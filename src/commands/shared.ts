@@ -1,15 +1,23 @@
+import type { ResolvedAuth } from "../api.ts";
 import { graphql } from "../api.ts";
 import type { ParsedArgs } from "../args.ts";
 import { getBoolean } from "../args.ts";
-import { getApiToken, loadConfig } from "../config.ts";
+import { loadConfig, resolveAuth } from "../config.ts";
 
-export async function requireToken(): Promise<string> {
-  const token = await getApiToken();
-  if (!token) {
+export type { ResolvedAuth };
+
+export async function requireAuth(): Promise<ResolvedAuth> {
+  const auth = await resolveAuth();
+  if (!auth) {
     console.error("Error: Not authenticated. Run 'linear auth login' first.");
     process.exit(1);
   }
-  return token;
+  return auth;
+}
+
+/** @deprecated Use requireAuth() to get the full auth object for refresh support. */
+export async function requireToken(): Promise<ResolvedAuth> {
+  return requireAuth();
 }
 
 /**
@@ -29,7 +37,7 @@ export interface ResolvedUser {
  * Returns null if not found or throws on ambiguity.
  */
 export async function resolveUser(
-  token: string,
+  auth: string | ResolvedAuth,
   value: string,
   options?: { requireApp?: boolean; allowMe?: boolean },
 ): Promise<ResolvedUser | null> {
@@ -53,7 +61,7 @@ export async function resolveUser(
         }
       }
     `;
-    const data = await graphql<{ viewer: ResolvedUser }>(token, query);
+    const data = await graphql<{ viewer: ResolvedUser }>(auth, query);
     if (requireApp && !data.viewer.app) {
       throw new Error(
         `"me" resolves to a regular user, but an agent/app user is required.`,
@@ -83,7 +91,7 @@ export async function resolveUser(
         }
       }
     `;
-    const data = await graphql<{ user: ResolvedUser | null }>(token, query, {
+    const data = await graphql<{ user: ResolvedUser | null }>(auth, query, {
       id: value,
     });
     const user = data.user;
@@ -121,7 +129,7 @@ export async function resolveUser(
   `;
 
   const data = await graphql<{ users: { nodes: ResolvedUser[] } }>(
-    token,
+    auth,
     query,
     { filter },
   );
@@ -161,13 +169,13 @@ export async function resolveUser(
  * Resolve an assignee (regular user or "me")
  */
 export async function resolveAssignee(
-  token: string,
+  auth: string | ResolvedAuth,
   value: string,
 ): Promise<string | null> {
   if (value.toLowerCase() === "none") {
     return null;
   }
-  const user = await resolveUser(token, value, { allowMe: true });
+  const user = await resolveUser(auth, value, { allowMe: true });
   if (!user) {
     throw new Error(`Assignee "${value}" not found.`);
   }
@@ -178,13 +186,13 @@ export async function resolveAssignee(
  * Resolve a delegate/agent (must be an app user)
  */
 export async function resolveDelegate(
-  token: string,
+  auth: string | ResolvedAuth,
   value: string,
 ): Promise<string | null> {
   if (value.toLowerCase() === "none") {
     return null;
   }
-  const user = await resolveUser(token, value, { requireApp: true });
+  const user = await resolveUser(auth, value, { requireApp: true });
   if (!user) {
     throw new Error(
       `Agent/delegate "${value}" not found or is not an app user.`,

@@ -130,10 +130,14 @@ async function main(): Promise<void> {
 function parseAuthArgs(args: string[]): {
   token?: string;
   type?: "api" | "oauth";
+  refreshToken?: string;
+  expiresAt?: string;
   help: boolean;
 } {
   let token: string | undefined;
   let type: "api" | "oauth" | undefined;
+  let refreshToken: string | undefined;
+  let expiresAt: string | undefined;
   let help = false;
 
   for (let i = 0; i < args.length; i++) {
@@ -156,10 +160,20 @@ function parseAuthArgs(args: string[]): {
       if (value === "api" || value === "oauth") {
         type = value;
       }
+    } else if (arg === "--refresh-token" && args[i + 1]) {
+      refreshToken = args[i + 1];
+      i++;
+    } else if (arg?.startsWith("--refresh-token=")) {
+      refreshToken = arg.slice(16);
+    } else if (arg === "--expires-at" && args[i + 1]) {
+      expiresAt = args[i + 1];
+      i++;
+    } else if (arg?.startsWith("--expires-at=")) {
+      expiresAt = arg.slice(13);
     }
   }
 
-  return { token, type, help };
+  return { token, type, refreshToken, expiresAt, help };
 }
 
 async function handleAuth(
@@ -177,9 +191,11 @@ Usage: linear auth login [--token <token>] [--type <api|oauth>]
 Authenticate with Linear using an API token or an OAuth token.
 
 Options:
-  --token <token>         Token value
-  --type <api|oauth>      Required with --token or stdin
-  -h, --help              Show this help
+  --token <token>             Token value
+  --type <api|oauth>          Required with --token or stdin
+  --refresh-token <token>     OAuth refresh token (only with --type oauth)
+  --expires-at <iso>          Access token expiry as ISO timestamp (only with --type oauth)
+  -h, --help                  Show this help
 
 Interactive login will ask for the token type first.
 
@@ -219,7 +235,14 @@ Get your API token from:
       }
 
       console.log("Validating token...");
-      const result = await login(token, kind);
+      const loginOptions =
+        kind === "oauth"
+          ? {
+              refreshToken: parsed.refreshToken,
+              expiresAt: parsed.expiresAt,
+            }
+          : undefined;
+      const result = await login(token, kind, loginOptions);
 
       if (result.success) {
         console.log(`Authenticated as: ${result.name}`);
@@ -274,7 +297,7 @@ Options:
           console.log(`Email: ${status.email}`);
         }
         console.log(
-          `Token source: ${status.tokenSource === "env" ? "LINEAR_API_TOKEN env var" : "config file"}`,
+          `Token source: ${status.tokenSource === "env" ? "environment variable" : "config file"}`,
         );
       } else {
         console.log("Status: Not authenticated");
@@ -283,7 +306,7 @@ Options:
         }
         if (status.tokenSource) {
           console.log(
-            `Token source: ${status.tokenSource === "env" ? "LINEAR_API_TOKEN env var" : "config file"}`,
+            `Token source: ${status.tokenSource === "env" ? "environment variable" : "config file"}`,
           );
         }
         process.exit(1);

@@ -6,7 +6,7 @@
 import { chmod, mkdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { CONFIG_FILE } from "./constants.ts";
+import { CONFIG_FILE, VERSION } from "./constants.ts";
 
 export interface Config {
   // Personal API token from Linear settings
@@ -14,6 +14,16 @@ export interface Config {
 
   // OAuth token from a Linear app
   accessToken?: string;
+
+  // OAuth refresh token (config-stored OAuth only)
+  refreshToken?: string;
+
+  // ISO timestamp at which the access token expires
+  accessTokenExpiresAt?: string;
+
+  // OAuth client credentials for token refresh
+  oauthClientId?: string;
+  oauthClientSecret?: string;
 
   // Default team key (e.g. "ENG")
   defaultTeamKey?: string;
@@ -25,10 +35,43 @@ export interface Config {
   localConfigPaths?: string[];
 }
 
+export interface ConfigFileShape {
+  $schema?: string;
+  apiToken?: string;
+  oauth?: {
+    access?: string;
+    refresh?: string;
+    expiresAt?: string;
+    clientId?: string;
+    clientSecret?: string;
+  };
+  defaultTeamKey?: string;
+  outputFormat?: "json" | "table";
+  localConfigPaths?: string[];
+}
+
 export interface LocalConfig {
   defaultTeamKey?: string;
   defaultProject?: string;
   outputFormat?: "json" | "table";
+}
+
+/**
+ * Rich auth resolution result.
+ */
+export interface ResolvedAuth {
+  /** Formatted Authorization header value */
+  header: string;
+  /** Raw token value (without "Bearer " prefix) */
+  token: string;
+  /** Whether token came from env var or config file */
+  source: "env" | "config";
+  /** Whether this is an oauth or api token */
+  kind: "oauth" | "api";
+  /** Refresh token (config oauth only) */
+  refreshToken?: string;
+  /** ISO expiry timestamp (config oauth only) */
+  accessTokenExpiresAt?: string;
 }
 
 const DEFAULT_CONFIG: Config = {
@@ -57,6 +100,10 @@ export function getConfigPath(): string {
   return join(getConfigDir(), CONFIG_FILE);
 }
 
+export function getConfigSchemaUrl(): string {
+  return `https://raw.githubusercontent.com/aliou/linear-cli/v${VERSION}/schemas/config.schema.json`;
+}
+
 /**
  * Validate config object structure.
  * Returns a valid Config object, stripping unknown fields.
@@ -67,6 +114,10 @@ export function validateConfig(data: unknown): Config {
   }
 
   const obj = data as Record<string, unknown>;
+  const oauth =
+    obj.oauth && typeof obj.oauth === "object"
+      ? (obj.oauth as Record<string, unknown>)
+      : undefined;
   const config: Config = { ...DEFAULT_CONFIG };
 
   if (typeof obj.apiToken === "string") {
@@ -75,6 +126,28 @@ export function validateConfig(data: unknown): Config {
 
   if (typeof obj.accessToken === "string") {
     config.accessToken = obj.accessToken;
+  } else if (typeof oauth?.access === "string") {
+    config.accessToken = oauth.access;
+  }
+
+  if (typeof obj.refreshToken === "string") {
+    config.refreshToken = obj.refreshToken;
+  } else if (typeof oauth?.refresh === "string") {
+    config.refreshToken = oauth.refresh;
+  }
+
+  if (typeof obj.accessTokenExpiresAt === "string") {
+    config.accessTokenExpiresAt = obj.accessTokenExpiresAt;
+  } else if (typeof oauth?.expiresAt === "string") {
+    config.accessTokenExpiresAt = oauth.expiresAt;
+  }
+
+  if (typeof oauth?.clientId === "string") {
+    config.oauthClientId = oauth.clientId;
+  }
+
+  if (typeof oauth?.clientSecret === "string") {
+    config.oauthClientSecret = oauth.clientSecret;
   }
 
   if (typeof obj.defaultTeamKey === "string") {
@@ -136,8 +209,50 @@ export async function saveConfig(config: Config): Promise<void> {
   // Create directory with restricted permissions (owner only)
   await mkdir(configDir, { recursive: true, mode: 0o700 });
 
+  const fileShape: ConfigFileShape = {
+    $schema: getConfigSchemaUrl(),
+    outputFormat: config.outputFormat,
+  };
+
+  if (config.apiToken) {
+    fileShape.apiToken = config.apiToken;
+  }
+
+  if (
+    config.accessToken ||
+    config.refreshToken ||
+    config.accessTokenExpiresAt ||
+    config.oauthClientId ||
+    config.oauthClientSecret
+  ) {
+    fileShape.oauth = {};
+    if (config.accessToken) {
+      fileShape.oauth.access = config.accessToken;
+    }
+    if (config.refreshToken) {
+      fileShape.oauth.refresh = config.refreshToken;
+    }
+    if (config.accessTokenExpiresAt) {
+      fileShape.oauth.expiresAt = config.accessTokenExpiresAt;
+    }
+    if (config.oauthClientId) {
+      fileShape.oauth.clientId = config.oauthClientId;
+    }
+    if (config.oauthClientSecret) {
+      fileShape.oauth.clientSecret = config.oauthClientSecret;
+    }
+  }
+
+  if (config.defaultTeamKey) {
+    fileShape.defaultTeamKey = config.defaultTeamKey;
+  }
+
+  if (config.localConfigPaths) {
+    fileShape.localConfigPaths = config.localConfigPaths;
+  }
+
   // Write config file
-  const content = `${JSON.stringify(config, null, 2)}\n`;
+  const content = `${JSON.stringify(fileShape, null, 2)}\n`;
   await Bun.write(configPath, content);
 
   // Set file permissions (owner read/write only)
@@ -155,25 +270,91 @@ export async function updateConfig(updates: Partial<Config>): Promise<Config> {
 }
 
 /**
- * Get the auth token, checking env vars first, then config file.
+ * Resolve auth credentials, checking env vars first then config.
+ * Precedence:
+ *   1. LINEAR_OAUTH_TOKEN (env, oauth)
+ *   2. LINEAR_API_TOKEN   (env, api)
+ *   3. config.accessToken (config, oauth)
+ *   4. config.apiToken    (config, api)
  */
-export async function getApiToken(): Promise<string | undefined> {
+export async function resolveAuth(): Promise<ResolvedAuth | undefined> {
   const envOauthToken = process.env.LINEAR_OAUTH_TOKEN;
   if (envOauthToken) {
-    return `Bearer ${envOauthToken}`;
+    return {
+      header: `Bearer ${envOauthToken}`,
+      token: envOauthToken,
+      source: "env",
+      kind: "oauth",
+    };
   }
 
   const envApiToken = process.env.LINEAR_API_TOKEN;
   if (envApiToken) {
-    return envApiToken;
+    return {
+      header: envApiToken,
+      token: envApiToken,
+      source: "env",
+      kind: "api",
+    };
   }
 
   const config = await loadConfig();
+
   if (config.accessToken) {
-    return `Bearer ${config.accessToken}`;
+    return {
+      header: `Bearer ${config.accessToken}`,
+      token: config.accessToken,
+      source: "config",
+      kind: "oauth",
+      refreshToken: config.refreshToken,
+      accessTokenExpiresAt: config.accessTokenExpiresAt,
+    };
   }
 
-  return config.apiToken;
+  if (config.apiToken) {
+    return {
+      header: config.apiToken,
+      token: config.apiToken,
+      source: "config",
+      kind: "api",
+    };
+  }
+
+  return undefined;
+}
+
+/**
+ * Get the auth token, checking env vars first, then config file.
+ * Returns the formatted Authorization header value.
+ */
+export async function getApiToken(): Promise<string | undefined> {
+  const auth = await resolveAuth();
+  return auth?.header;
+}
+
+/**
+ * Resolve OAuth client credentials for token refresh.
+ * Environment variables take precedence over config file values.
+ */
+export async function resolveOAuthClientCredentials(): Promise<
+  { clientId: string; clientSecret: string } | undefined
+> {
+  const clientId = process.env.LINEAR_CLIENT_ID;
+  const clientSecret = process.env.LINEAR_CLIENT_SECRET;
+
+  if (clientId && clientSecret) {
+    return { clientId, clientSecret };
+  }
+
+  const config = await loadConfig();
+  if (config.oauthClientId && config.oauthClientSecret) {
+    return {
+      clientId: config.oauthClientId,
+      clientSecret: config.oauthClientSecret,
+    };
+  }
+
+  return undefined;
 }
 
 /**

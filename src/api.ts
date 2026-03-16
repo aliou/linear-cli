@@ -2,7 +2,11 @@
  * Linear GraphQL API client.
  */
 
+import type { ResolvedAuth } from "./config.ts";
 import { LINEAR_API_URL } from "./constants.ts";
+import { refreshOAuthToken } from "./oauth.ts";
+
+export type { ResolvedAuth };
 
 export interface GraphQLResponse<T = unknown> {
   data?: T;
@@ -10,21 +14,56 @@ export interface GraphQLResponse<T = unknown> {
 }
 
 /**
- * Execute a GraphQL query against the Linear API.
+ * Resolve an auth value (string or ResolvedAuth) into a header string.
  */
-export async function graphql<T = unknown>(
-  token: string,
+function authHeader(auth: string | ResolvedAuth): string {
+  return typeof auth === "string" ? auth : auth.header;
+}
+
+/**
+ * Execute a GraphQL request and return the raw Response.
+ */
+async function doGraphQL(
+  authValue: string,
   query: string,
   variables?: Record<string, unknown>,
-): Promise<T> {
-  const response = await fetch(LINEAR_API_URL, {
+): Promise<Response> {
+  return fetch(LINEAR_API_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: token,
+      Authorization: authValue,
     },
     body: JSON.stringify({ query, variables }),
   });
+}
+
+/**
+ * Execute a GraphQL query against the Linear API.
+ *
+ * When passed a ResolvedAuth from config with a refreshToken, a 401 response
+ * will trigger a single token-refresh attempt followed by a retry.
+ * Tokens from environment variables are never refreshed automatically.
+ */
+export async function graphql<T = unknown>(
+  auth: string | ResolvedAuth,
+  query: string,
+  variables?: Record<string, unknown>,
+): Promise<T> {
+  let currentHeader = authHeader(auth);
+  let response = await doGraphQL(currentHeader, query, variables);
+
+  // Attempt a token refresh on 401 for config-backed OAuth tokens with a refresh token
+  if (
+    response.status === 401 &&
+    typeof auth !== "string" &&
+    auth.source === "config" &&
+    auth.kind === "oauth" &&
+    auth.refreshToken
+  ) {
+    currentHeader = await refreshOAuthToken(auth.refreshToken);
+    response = await doGraphQL(currentHeader, query, variables);
+  }
 
   if (!response.ok) {
     if (response.status === 401) {
@@ -50,11 +89,11 @@ export async function graphql<T = unknown>(
  * Fetch the authenticated user (viewer) to validate token.
  */
 export async function fetchViewer(
-  token: string,
+  auth: string | ResolvedAuth,
 ): Promise<{ id: string; name: string; email: string }> {
   const data = await graphql<{
     viewer: { id: string; name: string; email: string };
-  }>(token, `query { viewer { id name email } }`);
+  }>(auth, `query { viewer { id name email } }`);
 
   return data.viewer;
 }

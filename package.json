@@ -9,6 +9,7 @@
   },
   "files": [
     "src/",
+    "schemas/",
     "SKILL.md"
   ],
   "scripts": {

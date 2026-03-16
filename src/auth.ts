@@ -7,9 +7,13 @@ import { fetchViewer } from "./api.ts";
 import {
   checkConfigPermissions,
   loadConfig,
+  resolveAuth,
   saveConfig,
   updateConfig,
 } from "./config.ts";
+import { refreshOAuthToken } from "./oauth.ts";
+
+export { refreshOAuthToken };
 
 export interface AuthStatus {
   authenticated: boolean;
@@ -34,20 +38,32 @@ function formatTokenForApi(token: string, kind: TokenKind): string {
 
 /**
  * Perform login: validate token and store in config.
+ * For OAuth logins, optionally persist refreshToken and accessTokenExpiresAt.
  */
 export async function login(
   token: string,
   kind: TokenKind,
+  options?: { refreshToken?: string; expiresAt?: string },
 ): Promise<LoginResult> {
   try {
     const trimmedToken = token.trim();
     const viewer = await fetchViewer(formatTokenForApi(trimmedToken, kind));
 
-    await updateConfig(
-      kind === "oauth"
-        ? { accessToken: trimmedToken, apiToken: undefined }
-        : { apiToken: trimmedToken, accessToken: undefined },
-    );
+    if (kind === "oauth") {
+      await updateConfig({
+        accessToken: trimmedToken,
+        apiToken: undefined,
+        refreshToken: options?.refreshToken,
+        accessTokenExpiresAt: options?.expiresAt,
+      });
+    } else {
+      await updateConfig({
+        apiToken: trimmedToken,
+        accessToken: undefined,
+        refreshToken: undefined,
+        accessTokenExpiresAt: undefined,
+      });
+    }
 
     return {
       success: true,
@@ -63,12 +79,14 @@ export async function login(
 }
 
 /**
- * Perform logout: remove token from config.
+ * Perform logout: remove token and related OAuth fields from config.
  */
 export async function logout(): Promise<void> {
   const config = await loadConfig();
   delete config.apiToken;
   delete config.accessToken;
+  delete config.refreshToken;
+  delete config.accessTokenExpiresAt;
   delete config.defaultTeamKey;
   await saveConfig(config);
 }
@@ -79,41 +97,27 @@ export async function logout(): Promise<void> {
 export async function getAuthStatus(): Promise<AuthStatus> {
   await checkConfigPermissions();
 
-  const envOauthToken = process.env.LINEAR_OAUTH_TOKEN;
-  const envApiToken = process.env.LINEAR_API_TOKEN;
-  const config = await loadConfig();
-  const token = envOauthToken
-    ? formatTokenForApi(envOauthToken, "oauth")
-    : envApiToken
-      ? formatTokenForApi(envApiToken, "api")
-      : config.accessToken
-        ? formatTokenForApi(config.accessToken, "oauth")
-        : config.apiToken
-          ? formatTokenForApi(config.apiToken, "api")
-          : undefined;
+  const auth = await resolveAuth();
 
-  if (!token) {
+  if (!auth) {
     return {
       authenticated: false,
       error: "No API token configured",
     };
   }
 
-  const tokenSource = envOauthToken || envApiToken ? "env" : "config";
-
   try {
-    const viewer = await fetchViewer(token);
-
+    const viewer = await fetchViewer(auth);
     return {
       authenticated: true,
       name: viewer.name,
       email: viewer.email,
-      tokenSource,
+      tokenSource: auth.source,
     };
   } catch (error) {
     return {
       authenticated: false,
-      tokenSource,
+      tokenSource: auth.source,
       error: error instanceof Error ? error.message : "Unknown error",
     };
   }

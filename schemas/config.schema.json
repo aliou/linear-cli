@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/aliou/linear-cli/v0.2.2/schemas/config.schema.json",
+  "title": "linear-cli config",
+  "description": "Configuration for linear-cli.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "format": "uri"
+    },
+    "apiToken": {
+      "type": "string",
+      "description": "Linear personal API key."
+    },
+    "oauth": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "access": {
+          "type": "string",
+          "description": "OAuth access token."
+        },
+        "refresh": {
+          "type": "string",
+          "description": "OAuth refresh token."
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO timestamp for access token expiry."
+        },
+        "clientId": {
+          "type": "string",
+          "description": "OAuth client ID used for refresh."
+        },
+        "clientSecret": {
+          "type": "string",
+          "description": "OAuth client secret used for refresh."
+        }
+      }
+    },
+    "defaultTeamKey": {
+      "type": "string",
+      "description": "Default Linear team key, e.g. ENG."
+    },
+    "outputFormat": {
+      "type": "string",
+      "enum": ["json", "table"],
+      "description": "Default output format."
+    },
+    "localConfigPaths": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Additional local config file paths to search."
+    }
+  }
+}
