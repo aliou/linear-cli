@@ -1,5 +1,14 @@
 # linear-cli
 
+## 0.4.0
+
+### Minor Changes
+
+- bb09508: Add multi-workspace auth profiles with `--workspace`, `auth list`, and `auth use`; add startup config migration with automatic backup to `config.<previous-version>.json`; and make auth/config resolution workspace-aware across login, status, logout, and OAuth refresh.
+- b7db802: Migrate CLI parsing to Commander with strict validation, typed command handlers, Clack prompts for auth input, Ora spinner feedback, and cli-table3 table rendering.
+
+  This removes legacy internal arg parsing (`src/args.ts`) and centralizes validation at the command definition level.
+
 ## 0.3.0
 
 ### Minor Changes
