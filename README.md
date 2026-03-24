@@ -51,6 +51,9 @@ linear auth login
 linear auth login --type api --token <token>
 linear auth login --type oauth --token <token>
 
+# Save under a specific workspace profile name
+linear auth login --type api --token <token> --workspace personal
+
 # With OAuth refresh token and expiry (optional, enables automatic token refresh)
 linear auth login --type oauth --token <token> \
   --refresh-token <refresh-token> \
@@ -61,6 +64,10 @@ export LINEAR_API_TOKEN=<token>
 
 # Via OAuth token environment variable
 export LINEAR_OAUTH_TOKEN=<token>
+
+# Workspace selection for config-stored credentials
+export LINEAR_WORKSPACE=acme
+linear --workspace personal issue list
 
 # Via pipe
 echo <token> | linear auth login --type api
@@ -75,25 +82,45 @@ You do not need a special `-` argument for stdin. Piped input is detected automa
 
 Config is stored in `~/.config/linear-cli/config.json` with `0600` permissions.
 
+List and switch workspace profiles:
+
+```sh
+linear auth list
+linear auth use <name>
+```
+
 ### Config format
 
 ```json
 {
   "$schema": "https://raw.githubusercontent.com/aliou/linear-cli/v0.2.2/schemas/config.schema.json",
-  "apiToken": "...",
-  "oauth": {
-    "access": "...",
-    "refresh": "...",
-    "expiresAt": "2025-01-01T00:00:00.000Z",
-    "clientId": "...",
-    "clientSecret": "..."
+  "defaultWorkspace": "acme",
+  "workspaces": {
+    "acme": {
+      "apiToken": "...",
+      "orgName": "Acme Inc",
+      "defaultTeamKey": "ENG",
+      "outputFormat": "table"
+    },
+    "personal": {
+      "oauth": {
+        "access": "...",
+        "refresh": "...",
+        "expiresAt": "2026-01-01T00:00:00.000Z",
+        "clientId": "...",
+        "clientSecret": "..."
+      },
+      "orgName": "Personal Workspace"
+    }
   },
   "defaultTeamKey": "ENG",
   "outputFormat": "table"
 }
 ```
 
-`apiToken` is used for a regular personal API key. OAuth credentials are stored under `oauth.access`, `oauth.refresh`, and `oauth.expiresAt`. All fields are optional and the file is backward compatible.
+Credentials are stored per workspace profile under `workspaces.<name>`. The CLI auto-detects workspace profile name from Linear organization `urlKey` during login. Use `--workspace` to override the profile name.
+
+Legacy flat config fields are still read for backward compatibility. On first run after upgrading, the CLI now automatically migrates legacy config to workspace format and creates a backup named `config.<previous-version>.json` next to `config.json`.
 
 The CLI writes and updates `$schema` automatically, pointing to the schema file for the CLI version used to write the config.
 
@@ -117,7 +144,7 @@ linear <command> <subcommand> [flags]
 
 | Command | Subcommands | Description |
 |---|---|---|
-| `auth` | `login`, `logout`, `status` | Manage authentication |
+| `auth` | `login`, `logout`, `status`, `list`, `use` | Manage authentication |
 | `issue` | `list`, `get`, `create`, `update`, `close` | Issue operations |
 | `team` | `list`, `get` | Team operations |
 | `project` | `list`, `get` | Project operations |
@@ -171,6 +198,10 @@ linear project list --status started
 # JSON output
 linear issue list --json
 
+# List and switch workspace profiles
+linear auth list
+linear auth use personal
+
 # Run an arbitrary GraphQL query
 linear graphql 'query { viewer { id name email } }'
 
@@ -185,10 +216,11 @@ echo 'query { viewer { id name } }' | linear graphql
 ### Global flags
 
 ```
--h, --help       Show help
--v, --version    Show version
---json           Output as JSON (available on all commands)
---completion     Generate shell completion (bash, zsh, fish)
+-h, --help                Show help
+-v, --version             Show version
+-w, --workspace <name>    Use a specific workspace profile
+--json                    Output as JSON (available on all commands)
+--completion              Generate shell completion (bash, zsh, fish)
 ```
 
 ## Shell completion
@@ -213,13 +245,22 @@ Stored at `~/.config/linear-cli/config.json`:
 ```json
 {
   "$schema": "https://raw.githubusercontent.com/aliou/linear-cli/v0.2.2/schemas/config.schema.json",
-  "apiToken": "...",
-  "oauth": {
-    "access": "...",
-    "refresh": "...",
-    "expiresAt": "2025-01-01T00:00:00.000Z",
-    "clientId": "...",
-    "clientSecret": "..."
+  "defaultWorkspace": "acme",
+  "workspaces": {
+    "acme": {
+      "apiToken": "...",
+      "orgName": "Acme Inc"
+    },
+    "personal": {
+      "oauth": {
+        "access": "...",
+        "refresh": "...",
+        "expiresAt": "2026-01-01T00:00:00.000Z",
+        "clientId": "...",
+        "clientSecret": "..."
+      },
+      "orgName": "Personal Workspace"
+    }
   },
   "defaultTeamKey": "ENG",
   "outputFormat": "table"
@@ -236,12 +277,13 @@ Place a config file in your project directory to set defaults per-project. Searc
 
 ```json
 {
+  "workspace": "acme",
   "defaultTeamKey": "ENG",
   "outputFormat": "json"
 }
 ```
 
-Local config overrides global config for `defaultTeamKey` and `outputFormat`.
+Local config overrides global/workspace defaults for `defaultTeamKey` and `outputFormat`, and can select the active profile via `workspace`.
 
 ## Agent Delegation
 

@@ -7,36 +7,61 @@ import { chmod, mkdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { CONFIG_FILE, VERSION } from "./constants.ts";
+import { CliError } from "./errors.ts";
+
+export interface WorkspaceProfile {
+  apiToken?: string;
+  accessToken?: string;
+  refreshToken?: string;
+  accessTokenExpiresAt?: string;
+  oauthClientId?: string;
+  oauthClientSecret?: string;
+  orgName?: string;
+  defaultTeamKey?: string;
+  outputFormat?: "json" | "table";
+}
+
+interface WorkspaceFileProfile {
+  apiToken?: string;
+  oauth?: {
+    access?: string;
+    refresh?: string;
+    expiresAt?: string;
+    clientId?: string;
+    clientSecret?: string;
+  };
+  orgName?: string;
+  defaultTeamKey?: string;
+  outputFormat?: "json" | "table";
+}
 
 export interface Config {
-  // Personal API token from Linear settings
+  // Workspace profiles
+  workspaces?: Record<string, WorkspaceProfile>;
+  defaultWorkspace?: string;
+
+  // Active workspace credentials (resolved from workspace or legacy)
   apiToken?: string;
-
-  // OAuth token from a Linear app
   accessToken?: string;
-
-  // OAuth refresh token (config-stored OAuth only)
   refreshToken?: string;
-
-  // ISO timestamp at which the access token expires
   accessTokenExpiresAt?: string;
-
-  // OAuth client credentials for token refresh
   oauthClientId?: string;
   oauthClientSecret?: string;
 
-  // Default team key (e.g. "ENG")
+  // Defaults
   defaultTeamKey?: string;
-
-  // Output preferences
   outputFormat?: "json" | "table";
-
-  // Additional paths to search for local config files
   localConfigPaths?: string[];
 }
 
 export interface ConfigFileShape {
   $schema?: string;
+
+  // New workspace-keyed config
+  workspaces?: Record<string, WorkspaceFileProfile>;
+  defaultWorkspace?: string;
+
+  // Legacy top-level fields (kept for backward compatibility)
   apiToken?: string;
   oauth?: {
     access?: string;
@@ -51,6 +76,7 @@ export interface ConfigFileShape {
 }
 
 export interface LocalConfig {
+  workspace?: string;
   defaultTeamKey?: string;
   defaultProject?: string;
   outputFormat?: "json" | "table";
@@ -68,6 +94,8 @@ export interface ResolvedAuth {
   source: "env" | "config";
   /** Whether this is an oauth or api token */
   kind: "oauth" | "api";
+  /** Workspace profile used (config tokens only) */
+  workspace?: string;
   /** Refresh token (config oauth only) */
   refreshToken?: string;
   /** ISO expiry timestamp (config oauth only) */
@@ -83,6 +111,383 @@ const DEFAULT_LOCAL_CONFIG_PATHS = [
   ".linear.json",
   ".linear/config.json",
 ];
+
+export interface ConfigMigration {
+  name: string;
+  shouldRun: (data: Record<string, unknown>) => boolean;
+  run: (data: Record<string, unknown>) => Record<string, unknown>;
+}
+
+function parseWorkspaceFileProfile(data: unknown): WorkspaceProfile {
+  if (!data || typeof data !== "object") {
+    return {};
+  }
+
+  const obj = data as Record<string, unknown>;
+  const oauth =
+    obj.oauth && typeof obj.oauth === "object"
+      ? (obj.oauth as Record<string, unknown>)
+      : undefined;
+
+  const profile: WorkspaceProfile = {};
+
+  if (typeof obj.apiToken === "string") {
+    profile.apiToken = obj.apiToken;
+  }
+
+  if (typeof oauth?.access === "string") {
+    profile.accessToken = oauth.access;
+  }
+
+  if (typeof oauth?.refresh === "string") {
+    profile.refreshToken = oauth.refresh;
+  }
+
+  if (typeof oauth?.expiresAt === "string") {
+    profile.accessTokenExpiresAt = oauth.expiresAt;
+  }
+
+  if (typeof oauth?.clientId === "string") {
+    profile.oauthClientId = oauth.clientId;
+  }
+
+  if (typeof oauth?.clientSecret === "string") {
+    profile.oauthClientSecret = oauth.clientSecret;
+  }
+
+  if (typeof obj.orgName === "string") {
+    profile.orgName = obj.orgName;
+  }
+
+  if (typeof obj.defaultTeamKey === "string") {
+    profile.defaultTeamKey = obj.defaultTeamKey;
+  }
+
+  if (obj.outputFormat === "json" || obj.outputFormat === "table") {
+    profile.outputFormat = obj.outputFormat;
+  }
+
+  return profile;
+}
+
+function workspaceProfileToFile(
+  profile: WorkspaceProfile,
+): WorkspaceFileProfile {
+  const fileProfile: WorkspaceFileProfile = {};
+
+  if (profile.apiToken) {
+    fileProfile.apiToken = profile.apiToken;
+  }
+
+  if (
+    profile.accessToken ||
+    profile.refreshToken ||
+    profile.accessTokenExpiresAt ||
+    profile.oauthClientId ||
+    profile.oauthClientSecret
+  ) {
+    fileProfile.oauth = {};
+    if (profile.accessToken) {
+      fileProfile.oauth.access = profile.accessToken;
+    }
+    if (profile.refreshToken) {
+      fileProfile.oauth.refresh = profile.refreshToken;
+    }
+    if (profile.accessTokenExpiresAt) {
+      fileProfile.oauth.expiresAt = profile.accessTokenExpiresAt;
+    }
+    if (profile.oauthClientId) {
+      fileProfile.oauth.clientId = profile.oauthClientId;
+    }
+    if (profile.oauthClientSecret) {
+      fileProfile.oauth.clientSecret = profile.oauthClientSecret;
+    }
+  }
+
+  if (profile.orgName) {
+    fileProfile.orgName = profile.orgName;
+  }
+
+  if (profile.defaultTeamKey) {
+    fileProfile.defaultTeamKey = profile.defaultTeamKey;
+  }
+
+  if (profile.outputFormat) {
+    fileProfile.outputFormat = profile.outputFormat;
+  }
+
+  return fileProfile;
+}
+
+function hasCredentials(profile: WorkspaceProfile): boolean {
+  return Boolean(profile.accessToken || profile.apiToken);
+}
+
+function parseSemverParts(
+  version: string,
+): [number, number, number] | undefined {
+  const match = /^(\d+)\.(\d+)\.(\d+)/.exec(version.trim());
+  if (!match) return undefined;
+
+  const major = Number.parseInt(match[1] ?? "0", 10);
+  const minor = Number.parseInt(match[2] ?? "0", 10);
+  const patch = Number.parseInt(match[3] ?? "0", 10);
+
+  if (Number.isNaN(major) || Number.isNaN(minor) || Number.isNaN(patch)) {
+    return undefined;
+  }
+
+  return [major, minor, patch];
+}
+
+function getPreviousCliVersion(version: string): string {
+  const parts = parseSemverParts(version);
+  if (!parts) return version;
+
+  let [major, minor, patch] = parts;
+
+  if (patch > 0) {
+    patch -= 1;
+  } else if (minor > 0) {
+    minor -= 1;
+    patch = 0;
+  } else if (major > 0) {
+    major -= 1;
+    minor = 0;
+    patch = 0;
+  }
+
+  return `${major}.${minor}.${patch}`;
+}
+
+function hasLegacyAuthFields(data: Record<string, unknown>): boolean {
+  const oauth =
+    data.oauth && typeof data.oauth === "object"
+      ? (data.oauth as Record<string, unknown>)
+      : undefined;
+
+  return (
+    typeof data.apiToken === "string" ||
+    typeof data.accessToken === "string" ||
+    typeof data.refreshToken === "string" ||
+    typeof data.accessTokenExpiresAt === "string" ||
+    typeof data.oauthClientId === "string" ||
+    typeof data.oauthClientSecret === "string" ||
+    typeof oauth?.access === "string" ||
+    typeof oauth?.refresh === "string" ||
+    typeof oauth?.expiresAt === "string" ||
+    typeof oauth?.clientId === "string" ||
+    typeof oauth?.clientSecret === "string"
+  );
+}
+
+const CONFIG_MIGRATIONS: ConfigMigration[] = [
+  {
+    name: "legacy-flat-auth-to-workspaces",
+    shouldRun: (data) => {
+      const hasWorkspaces =
+        data.workspaces !== undefined &&
+        data.workspaces !== null &&
+        typeof data.workspaces === "object";
+      return !hasWorkspaces && hasLegacyAuthFields(data);
+    },
+    run: (data) => {
+      const next: Record<string, unknown> = { ...data };
+
+      const oauth =
+        next.oauth && typeof next.oauth === "object"
+          ? ({ ...(next.oauth as Record<string, unknown>) } as Record<
+              string,
+              unknown
+            >)
+          : undefined;
+
+      const workspaceProfile: Record<string, unknown> = {};
+
+      if (typeof next.apiToken === "string") {
+        workspaceProfile.apiToken = next.apiToken;
+      }
+
+      const access =
+        typeof next.accessToken === "string"
+          ? next.accessToken
+          : typeof oauth?.access === "string"
+            ? oauth.access
+            : undefined;
+
+      const refresh =
+        typeof next.refreshToken === "string"
+          ? next.refreshToken
+          : typeof oauth?.refresh === "string"
+            ? oauth.refresh
+            : undefined;
+
+      const expiresAt =
+        typeof next.accessTokenExpiresAt === "string"
+          ? next.accessTokenExpiresAt
+          : typeof oauth?.expiresAt === "string"
+            ? oauth.expiresAt
+            : undefined;
+
+      const clientId =
+        typeof next.oauthClientId === "string"
+          ? next.oauthClientId
+          : typeof oauth?.clientId === "string"
+            ? oauth.clientId
+            : undefined;
+
+      const clientSecret =
+        typeof next.oauthClientSecret === "string"
+          ? next.oauthClientSecret
+          : typeof oauth?.clientSecret === "string"
+            ? oauth.clientSecret
+            : undefined;
+
+      if (
+        access !== undefined ||
+        refresh !== undefined ||
+        expiresAt !== undefined ||
+        clientId !== undefined ||
+        clientSecret !== undefined
+      ) {
+        const oauthProfile: Record<string, unknown> = {};
+        if (access !== undefined) oauthProfile.access = access;
+        if (refresh !== undefined) oauthProfile.refresh = refresh;
+        if (expiresAt !== undefined) oauthProfile.expiresAt = expiresAt;
+        if (clientId !== undefined) oauthProfile.clientId = clientId;
+        if (clientSecret !== undefined)
+          oauthProfile.clientSecret = clientSecret;
+        workspaceProfile.oauth = oauthProfile;
+      }
+
+      next.workspaces = { default: workspaceProfile };
+      next.defaultWorkspace =
+        typeof next.defaultWorkspace === "string"
+          ? next.defaultWorkspace
+          : "default";
+
+      delete next.apiToken;
+      delete next.accessToken;
+      delete next.refreshToken;
+      delete next.accessTokenExpiresAt;
+      delete next.oauthClientId;
+      delete next.oauthClientSecret;
+      delete next.oauth;
+
+      return next;
+    },
+  },
+];
+
+function getWorkspaceNames(config: Config): string[] {
+  return Object.keys(config.workspaces ?? {});
+}
+
+function buildWorkspaceMapForSave(config: Config): {
+  workspaces: Record<string, WorkspaceProfile>;
+  defaultWorkspace?: string;
+} {
+  const workspaces: Record<string, WorkspaceProfile> = {
+    ...(config.workspaces ?? {}),
+  };
+
+  // Legacy migration: if no explicit workspace profiles exist, move legacy auth
+  // into a default workspace profile on save.
+  if (Object.keys(workspaces).length === 0) {
+    const legacyProfile: WorkspaceProfile = {};
+
+    if (config.apiToken) {
+      legacyProfile.apiToken = config.apiToken;
+    }
+    if (config.accessToken) {
+      legacyProfile.accessToken = config.accessToken;
+    }
+    if (config.refreshToken) {
+      legacyProfile.refreshToken = config.refreshToken;
+    }
+    if (config.accessTokenExpiresAt) {
+      legacyProfile.accessTokenExpiresAt = config.accessTokenExpiresAt;
+    }
+    if (config.oauthClientId) {
+      legacyProfile.oauthClientId = config.oauthClientId;
+    }
+    if (config.oauthClientSecret) {
+      legacyProfile.oauthClientSecret = config.oauthClientSecret;
+    }
+
+    if (hasCredentials(legacyProfile) || legacyProfile.refreshToken) {
+      const profileName = config.defaultWorkspace ?? "default";
+      workspaces[profileName] = legacyProfile;
+      return { workspaces, defaultWorkspace: profileName };
+    }
+  }
+
+  return {
+    workspaces,
+    defaultWorkspace: config.defaultWorkspace,
+  };
+}
+
+function resolveWorkspaceName(
+  config: Config,
+  local: LocalConfig | undefined,
+  context?: { workspace?: string },
+): string | undefined {
+  const workspaceNames = getWorkspaceNames(config);
+
+  const explicitWorkspace =
+    context?.workspace ?? process.env.LINEAR_WORKSPACE ?? local?.workspace;
+
+  if (explicitWorkspace) {
+    if (!workspaceNames.includes(explicitWorkspace)) {
+      throw new CliError(
+        `Workspace "${explicitWorkspace}" not found in config.`,
+        {
+          suggestion:
+            "Run 'linear auth list' to see available workspaces, or 'linear auth login --workspace " +
+            explicitWorkspace +
+            "' to add one.",
+        },
+      );
+    }
+    return explicitWorkspace;
+  }
+
+  if (
+    config.defaultWorkspace &&
+    workspaceNames.includes(config.defaultWorkspace)
+  ) {
+    return config.defaultWorkspace;
+  }
+
+  if (workspaceNames.length === 1) {
+    return workspaceNames[0];
+  }
+
+  if (
+    config.defaultWorkspace &&
+    !workspaceNames.includes(config.defaultWorkspace) &&
+    workspaceNames.length > 1
+  ) {
+    throw new CliError(
+      "Configured default workspace is missing and multiple workspaces are available.",
+      {
+        suggestion: `Run 'linear auth use <name>' to pick a default. Available workspaces: ${workspaceNames.join(", ")}`,
+      },
+    );
+  }
+
+  if (workspaceNames.length > 1) {
+    throw new CliError(
+      "Multiple workspaces configured. Specify one with --workspace or set a default with 'linear auth use <name>'.",
+      {
+        suggestion: `Available workspaces: ${workspaceNames.join(", ")}`,
+      },
+    );
+  }
+
+  return undefined;
+}
 
 /**
  * Get the path to the config directory.
@@ -118,8 +523,28 @@ export function validateConfig(data: unknown): Config {
     obj.oauth && typeof obj.oauth === "object"
       ? (obj.oauth as Record<string, unknown>)
       : undefined;
+
   const config: Config = { ...DEFAULT_CONFIG };
 
+  if (typeof obj.defaultWorkspace === "string") {
+    config.defaultWorkspace = obj.defaultWorkspace;
+  }
+
+  if (obj.workspaces && typeof obj.workspaces === "object") {
+    const workspaceObj = obj.workspaces as Record<string, unknown>;
+    const parsedWorkspaces: Record<string, WorkspaceProfile> = {};
+
+    for (const [name, value] of Object.entries(workspaceObj)) {
+      if (!name) continue;
+      parsedWorkspaces[name] = parseWorkspaceFileProfile(value);
+    }
+
+    if (Object.keys(parsedWorkspaces).length > 0) {
+      config.workspaces = parsedWorkspaces;
+    }
+  }
+
+  // Parse legacy flat fields for backward compatibility.
   if (typeof obj.apiToken === "string") {
     config.apiToken = obj.apiToken;
   }
@@ -142,11 +567,15 @@ export function validateConfig(data: unknown): Config {
     config.accessTokenExpiresAt = oauth.expiresAt;
   }
 
-  if (typeof oauth?.clientId === "string") {
+  if (typeof obj.oauthClientId === "string") {
+    config.oauthClientId = obj.oauthClientId;
+  } else if (typeof oauth?.clientId === "string") {
     config.oauthClientId = oauth.clientId;
   }
 
-  if (typeof oauth?.clientSecret === "string") {
+  if (typeof obj.oauthClientSecret === "string") {
+    config.oauthClientSecret = obj.oauthClientSecret;
+  } else if (typeof oauth?.clientSecret === "string") {
     config.oauthClientSecret = oauth.clientSecret;
   }
 
@@ -165,7 +594,88 @@ export function validateConfig(data: unknown): Config {
     config.localConfigPaths = obj.localConfigPaths as string[];
   }
 
+  // Implicit legacy migration in memory only: expose a default workspace profile
+  // so workspace-aware reads still work before the next save.
+  if (
+    !config.workspaces &&
+    (config.apiToken || config.accessToken || config.refreshToken)
+  ) {
+    config.workspaces = {
+      default: {
+        apiToken: config.apiToken,
+        accessToken: config.accessToken,
+        refreshToken: config.refreshToken,
+        accessTokenExpiresAt: config.accessTokenExpiresAt,
+        oauthClientId: config.oauthClientId,
+        oauthClientSecret: config.oauthClientSecret,
+      },
+    };
+    config.defaultWorkspace = config.defaultWorkspace ?? "default";
+  }
+
   return config;
+}
+
+async function backupConfigForMigration(configPath: string): Promise<void> {
+  const previousVersion = getPreviousCliVersion(VERSION);
+  const backupPath = join(
+    dirname(configPath),
+    `config.${previousVersion}.json`,
+  );
+
+  const backupFile = Bun.file(backupPath);
+  if (await backupFile.exists()) {
+    return;
+  }
+
+  const source = Bun.file(configPath);
+  const content = await source.text();
+  await Bun.write(backupPath, content);
+  await chmod(backupPath, 0o600);
+}
+
+async function migrateConfigFileIfNeeded(configPath: string): Promise<void> {
+  const file = Bun.file(configPath);
+  if (!(await file.exists())) {
+    return;
+  }
+
+  let data: unknown;
+  try {
+    data = JSON.parse(await file.text());
+  } catch {
+    return;
+  }
+
+  if (!data || typeof data !== "object") {
+    return;
+  }
+
+  let current = data as Record<string, unknown>;
+  let changed = false;
+
+  for (const migration of CONFIG_MIGRATIONS) {
+    if (!migration.shouldRun(current)) {
+      continue;
+    }
+
+    if (!changed) {
+      await backupConfigForMigration(configPath);
+    }
+
+    current = migration.run(current);
+    changed = true;
+  }
+
+  if (!changed) {
+    return;
+  }
+
+  await saveConfig(validateConfig(current));
+}
+
+export async function migrateConfigOnStartup(): Promise<void> {
+  await migrateConfigFileIfNeeded(getConfigPath());
 }
 
 /**
@@ -174,6 +684,8 @@ export function validateConfig(data: unknown): Config {
  */
 export async function loadConfig(): Promise<Config> {
   const configPath = getConfigPath();
+
+  await migrateConfigFileIfNeeded(configPath);
 
   try {
     const file = Bun.file(configPath);
@@ -209,37 +721,21 @@ export async function saveConfig(config: Config): Promise<void> {
   // Create directory with restricted permissions (owner only)
   await mkdir(configDir, { recursive: true, mode: 0o700 });
 
+  const normalized = buildWorkspaceMapForSave(config);
+
   const fileShape: ConfigFileShape = {
     $schema: getConfigSchemaUrl(),
     outputFormat: config.outputFormat,
   };
 
-  if (config.apiToken) {
-    fileShape.apiToken = config.apiToken;
+  if (normalized.defaultWorkspace) {
+    fileShape.defaultWorkspace = normalized.defaultWorkspace;
   }
 
-  if (
-    config.accessToken ||
-    config.refreshToken ||
-    config.accessTokenExpiresAt ||
-    config.oauthClientId ||
-    config.oauthClientSecret
-  ) {
-    fileShape.oauth = {};
-    if (config.accessToken) {
-      fileShape.oauth.access = config.accessToken;
-    }
-    if (config.refreshToken) {
-      fileShape.oauth.refresh = config.refreshToken;
-    }
-    if (config.accessTokenExpiresAt) {
-      fileShape.oauth.expiresAt = config.accessTokenExpiresAt;
-    }
-    if (config.oauthClientId) {
-      fileShape.oauth.clientId = config.oauthClientId;
-    }
-    if (config.oauthClientSecret) {
-      fileShape.oauth.clientSecret = config.oauthClientSecret;
+  if (Object.keys(normalized.workspaces).length > 0) {
+    fileShape.workspaces = {};
+    for (const [name, profile] of Object.entries(normalized.workspaces)) {
+      fileShape.workspaces[name] = workspaceProfileToFile(profile);
     }
   }
 
@@ -269,15 +765,51 @@ export async function updateConfig(updates: Partial<Config>): Promise<Config> {
   return updated;
 }
 
+export async function saveWorkspaceProfile(
+  name: string,
+  profile: WorkspaceProfile,
+): Promise<void> {
+  const config = await loadConfig();
+  const workspaces = { ...(config.workspaces ?? {}) };
+  workspaces[name] = profile;
+
+  await saveConfig({
+    ...config,
+    workspaces,
+  });
+}
+
+export async function setDefaultWorkspace(name: string): Promise<void> {
+  const config = await loadConfig();
+  const workspaces = config.workspaces ?? {};
+
+  if (!workspaces[name]) {
+    throw new CliError(`Workspace "${name}" not found in config.`, {
+      suggestion:
+        "Run 'linear auth list' to see available workspaces, or 'linear auth login --workspace " +
+        name +
+        "' to add one.",
+    });
+  }
+
+  await saveConfig({
+    ...config,
+    defaultWorkspace: name,
+  });
+}
+
 /**
  * Resolve auth credentials, checking env vars first then config.
  * Precedence:
  *   1. LINEAR_OAUTH_TOKEN (env, oauth)
  *   2. LINEAR_API_TOKEN   (env, api)
- *   3. config.accessToken (config, oauth)
- *   4. config.apiToken    (config, api)
+ *   3. workspace profile oauth token
+ *   4. workspace profile api token
+ *   5. legacy config accessToken/apiToken (backward compat)
  */
-export async function resolveAuth(): Promise<ResolvedAuth | undefined> {
+export async function resolveAuth(context?: {
+  workspace?: string;
+}): Promise<ResolvedAuth | undefined> {
   const envOauthToken = process.env.LINEAR_OAUTH_TOKEN;
   if (envOauthToken) {
     return {
@@ -299,7 +831,38 @@ export async function resolveAuth(): Promise<ResolvedAuth | undefined> {
   }
 
   const config = await loadConfig();
+  const local = await loadLocalConfig(config.localConfigPaths);
+  const workspace = resolveWorkspaceName(config, local, context);
 
+  if (workspace) {
+    const profile = config.workspaces?.[workspace];
+
+    if (profile?.accessToken) {
+      return {
+        header: `Bearer ${profile.accessToken}`,
+        token: profile.accessToken,
+        source: "config",
+        kind: "oauth",
+        workspace,
+        refreshToken: profile.refreshToken,
+        accessTokenExpiresAt: profile.accessTokenExpiresAt,
+      };
+    }
+
+    if (profile?.apiToken) {
+      return {
+        header: profile.apiToken,
+        token: profile.apiToken,
+        source: "config",
+        kind: "api",
+        workspace,
+      };
+    }
+
+    return undefined;
+  }
+
+  // Legacy fallback for old flat config.
   if (config.accessToken) {
     return {
       header: `Bearer ${config.accessToken}`,
@@ -336,9 +899,9 @@ export async function getApiToken(): Promise<string | undefined> {
  * Resolve OAuth client credentials for token refresh.
  * Environment variables take precedence over config file values.
  */
-export async function resolveOAuthClientCredentials(): Promise<
-  { clientId: string; clientSecret: string } | undefined
-> {
+export async function resolveOAuthClientCredentials(context?: {
+  workspace?: string;
+}): Promise<{ clientId: string; clientSecret: string } | undefined> {
   const clientId = process.env.LINEAR_CLIENT_ID;
   const clientSecret = process.env.LINEAR_CLIENT_SECRET;
 
@@ -347,6 +910,19 @@ export async function resolveOAuthClientCredentials(): Promise<
   }
 
   const config = await loadConfig();
+  const local = await loadLocalConfig(config.localConfigPaths);
+  const workspace = resolveWorkspaceName(config, local, context);
+
+  if (workspace) {
+    const profile = config.workspaces?.[workspace];
+    if (profile?.oauthClientId && profile.oauthClientSecret) {
+      return {
+        clientId: profile.oauthClientId,
+        clientSecret: profile.oauthClientSecret,
+      };
+    }
+  }
+
   if (config.oauthClientId && config.oauthClientSecret) {
     return {
       clientId: config.oauthClientId,
@@ -395,6 +971,10 @@ export function validateLocalConfig(data: unknown): LocalConfig {
 
   const obj = data as Record<string, unknown>;
   const config: LocalConfig = {};
+
+  if (typeof obj.workspace === "string") {
+    config.workspace = obj.workspace;
+  }
 
   if (typeof obj.defaultTeamKey === "string") {
     config.defaultTeamKey = obj.defaultTeamKey;
@@ -459,24 +1039,61 @@ export async function loadLocalConfig(
 }
 
 /**
- * Load global config and local config, merging local overrides.
- * Local config values override global config values (except apiToken).
+ * Load global config and local config, applying workspace and local overrides.
+ * Merge order:
+ *   global defaults < workspace profile defaults < local overrides
  */
-export async function loadMergedConfig(): Promise<{
+export async function loadMergedConfig(context?: {
+  workspace?: string;
+}): Promise<{
   config: Config;
   local: LocalConfig | undefined;
+  workspaceName?: string;
 }> {
   const config = await loadConfig();
   const local = await loadLocalConfig(config.localConfigPaths);
+  const workspaceName = resolveWorkspaceName(config, local, context);
 
-  if (local) {
-    if (local.defaultTeamKey !== undefined) {
-      config.defaultTeamKey = local.defaultTeamKey;
-    }
-    if (local.outputFormat !== undefined) {
-      config.outputFormat = local.outputFormat;
+  const merged: Config = { ...config };
+
+  if (workspaceName) {
+    const profile = config.workspaces?.[workspaceName];
+    if (profile) {
+      if (profile.defaultTeamKey !== undefined) {
+        merged.defaultTeamKey = profile.defaultTeamKey;
+      }
+      if (profile.outputFormat !== undefined) {
+        merged.outputFormat = profile.outputFormat;
+      }
+      if (profile.apiToken !== undefined) {
+        merged.apiToken = profile.apiToken;
+      }
+      if (profile.accessToken !== undefined) {
+        merged.accessToken = profile.accessToken;
+      }
+      if (profile.refreshToken !== undefined) {
+        merged.refreshToken = profile.refreshToken;
+      }
+      if (profile.accessTokenExpiresAt !== undefined) {
+        merged.accessTokenExpiresAt = profile.accessTokenExpiresAt;
+      }
+      if (profile.oauthClientId !== undefined) {
+        merged.oauthClientId = profile.oauthClientId;
+      }
+      if (profile.oauthClientSecret !== undefined) {
+        merged.oauthClientSecret = profile.oauthClientSecret;
+      }
     }
   }
 
-  return { config, local };
+  if (local) {
+    if (local.defaultTeamKey !== undefined) {
+      merged.defaultTeamKey = local.defaultTeamKey;
+    }
+    if (local.outputFormat !== undefined) {
+      merged.outputFormat = local.outputFormat;
+    }
+  }
+
+  return { config: merged, local, workspaceName };
 }

@@ -67,7 +67,16 @@ export async function graphqlRequest<T = unknown>(
     auth.kind === "oauth" &&
     auth.refreshToken
   ) {
-    currentHeader = await refreshOAuthToken(auth.refreshToken);
+    if (!auth.workspace) {
+      throw new CliError(
+        "Cannot refresh OAuth token without a workspace context.",
+        {
+          suggestion:
+            "Run 'linear auth login' to migrate credentials to a workspace profile.",
+        },
+      );
+    }
+    currentHeader = await refreshOAuthToken(auth.refreshToken, auth.workspace);
     response = await doGraphQL(currentHeader, query, variables);
   }
 
@@ -138,4 +147,14 @@ export async function fetchViewer(
   }>(auth, `query { viewer { id name email } }`);
 
   return data.viewer;
+}
+
+export async function fetchOrganization(
+  auth: string | ResolvedAuth,
+): Promise<{ id: string; name: string; urlKey: string }> {
+  const data = await graphql<{
+    organization: { id: string; name: string; urlKey: string };
+  }>(auth, `query { organization { id name urlKey } }`);
+
+  return data.organization;
 }

@@ -5,6 +5,7 @@ export interface CliOptions {
   help: boolean;
   version: boolean;
   completion: string | null;
+  workspace: string | null;
   command: string | null;
   subcommand: string | null;
   args: string[];
@@ -17,6 +18,7 @@ export function parseArgs(args: string[]): CliOptions {
       help: { type: "boolean", short: "h" },
       version: { type: "boolean", short: "v" },
       completion: { type: "string" },
+      workspace: { type: "string", short: "w" },
     },
     strict: false,
     allowPositionals: true,
@@ -48,6 +50,13 @@ export function parseArgs(args: string[]): CliOptions {
       if (arg === "--completion" || arg.startsWith("--completion=")) {
         continue;
       }
+      if (arg === "-w" || arg === "--workspace") {
+        i++;
+        continue;
+      }
+      if (arg.startsWith("--workspace=")) {
+        continue;
+      }
       subcommandArgs.push(arg);
     }
   }
@@ -58,6 +67,10 @@ export function parseArgs(args: string[]): CliOptions {
     completion:
       typeof result.values.completion === "string"
         ? result.values.completion
+        : null,
+    workspace:
+      typeof result.values.workspace === "string"
+        ? result.values.workspace
         : null,
     command,
     subcommand,
@@ -80,7 +93,7 @@ ${bold("Usage:")}
   ${APP_NAME} <command> [subcommand] [flags]
 
 ${bold("Commands:")}
-  auth        Manage authentication ${dim("(login, logout, status)")}
+  auth        Manage authentication ${dim("(login, logout, status, list, use)")}
   issue       Issue operations ${dim("(list, get, create, update, close)")}
   team        Team operations ${dim("(list, get)")}
   project     Project operations ${dim("(list, get)")}
@@ -96,9 +109,10 @@ ${bold("Commands:")}
   graphql     Run arbitrary GraphQL ${dim("(query or mutation)")}
 
 ${bold("Flags:")}
-  -h, --help       Show help
-  -v, --version    Show version
-  --completion     Generate shell completion ${dim("(bash, zsh, fish)")}
+  -h, --help                Show help
+  -v, --version             Show version
+  -w, --workspace <name>    Use a specific workspace profile
+  --completion              Generate shell completion ${dim("(bash, zsh, fish)")}
 
 ${bold("Examples:")}
   ${APP_NAME} auth login
@@ -128,7 +142,7 @@ _${APP_NAME}_completions() {
     prev="\${COMP_WORDS[COMP_CWORD-1]}"
 
     local commands="auth issue team project cycle comment document label milestone initiative user state search graphql"
-    local auth_cmds="login logout status"
+    local auth_cmds="login logout status list use"
     local issue_cmds="list get create update close"
     local team_cmds="list get"
     local project_cmds="list get"
@@ -144,7 +158,7 @@ _${APP_NAME}_completions() {
 
     case "\${COMP_CWORD}" in
         1)
-            COMPREPLY=( $(compgen -W "\${commands} --help --version --completion" -- "\${cur}") )
+            COMPREPLY=( $(compgen -W "\${commands} --help --version --completion --workspace" -- "\${cur}") )
             ;;
         2)
             case "\${prev}" in
@@ -225,7 +239,7 @@ _${APP_NAME}() {
         'graphql:Run arbitrary GraphQL'
     )
 
-    auth_cmds=('login:Authenticate with API token' 'logout:Remove stored credentials' 'status:Show auth status')
+    auth_cmds=('login:Authenticate with API token' 'logout:Remove stored credentials' 'status:Show auth status' 'list:List workspace profiles' 'use:Set default workspace')
     issue_cmds=('list:List issues' 'get:Get issue by identifier' 'create:Create an issue' 'update:Update an issue' 'close:Close an issue')
     team_cmds=('list:List teams' 'get:Get team by key')
     project_cmds=('list:List projects' 'get:Get project by ID')
@@ -245,6 +259,8 @@ _${APP_NAME}() {
         '-v[Show version]' \\
         '--version[Show version]' \\
         '--completion[Generate completion]:shell:(bash zsh fish)' \\
+        '-w[Use a specific workspace profile]:workspace name:' \\
+        '--workspace[Use a specific workspace profile]:workspace name:' \\
         '1:command:->command' \\
         '2:subcommand:->subcommand' \\
         '*::args:->args'
@@ -287,6 +303,7 @@ complete -c ${APP_NAME} -f
 # Global flags
 complete -c ${APP_NAME} -s h -l help -d 'Show help'
 complete -c ${APP_NAME} -s v -l version -d 'Show version'
+complete -c ${APP_NAME} -s w -l workspace -d 'Use a specific workspace profile' -r
 complete -c ${APP_NAME} -l completion -d 'Generate completion' -xa 'bash zsh fish'
 
 # Commands
@@ -309,6 +326,8 @@ complete -c ${APP_NAME} -n __fish_use_subcommand -a graphql -d 'Run arbitrary Gr
 complete -c ${APP_NAME} -n '__fish_seen_subcommand_from auth' -a login -d 'Authenticate with API token'
 complete -c ${APP_NAME} -n '__fish_seen_subcommand_from auth' -a logout -d 'Remove stored credentials'
 complete -c ${APP_NAME} -n '__fish_seen_subcommand_from auth' -a status -d 'Show auth status'
+complete -c ${APP_NAME} -n '__fish_seen_subcommand_from auth' -a list -d 'List workspace profiles'
+complete -c ${APP_NAME} -n '__fish_seen_subcommand_from auth' -a use -d 'Set default workspace'
 
 # issue subcommands
 complete -c ${APP_NAME} -n '__fish_seen_subcommand_from issue' -a list -d 'List issues'

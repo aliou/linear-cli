@@ -6,11 +6,9 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { graphql } from "./api.ts";
+import { fetchOrganization, graphql } from "./api.ts";
 import type { ResolvedAuth } from "./config.ts";
 import { loadConfig, saveConfig } from "./config.ts";
-
-// ---- helpers ----------------------------------------------------------------
 
 function makeJsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -22,8 +20,6 @@ function makeJsonResponse(body: unknown, status = 200): Response {
 const SUCCESS_BODY = {
   data: { viewer: { id: "1", name: "Test", email: "t@t.com" } },
 };
-
-// ---- test setup -------------------------------------------------------------
 
 let tempDir: string;
 const originalXdgConfigHome = process.env.XDG_CONFIG_HOME;
@@ -52,13 +48,16 @@ afterEach(async () => {
   mock.restore();
 });
 
-// ---- tests ------------------------------------------------------------------
-
 describe("graphql() with config OAuth token + refreshToken on 401", () => {
   test("refreshes token, retries, and updates config on 401", async () => {
     await saveConfig({
-      accessToken: "old-access-token",
-      refreshToken: "my-refresh-token",
+      defaultWorkspace: "acme",
+      workspaces: {
+        acme: {
+          accessToken: "old-access-token",
+          refreshToken: "my-refresh-token",
+        },
+      },
       outputFormat: "table",
     });
 
@@ -67,6 +66,7 @@ describe("graphql() with config OAuth token + refreshToken on 401", () => {
       token: "old-access-token",
       source: "config",
       kind: "oauth",
+      workspace: "acme",
       refreshToken: "my-refresh-token",
     };
 
@@ -98,9 +98,9 @@ describe("graphql() with config OAuth token + refreshToken on 401", () => {
       expect(callCount).toBe(2);
 
       const config = await loadConfig();
-      expect(config.accessToken).toBe("new-access-token");
-      expect(config.refreshToken).toBe("new-refresh-token");
-      expect(config.accessTokenExpiresAt).toBeDefined();
+      expect(config.workspaces?.acme?.accessToken).toBe("new-access-token");
+      expect(config.workspaces?.acme?.refreshToken).toBe("new-refresh-token");
+      expect(config.workspaces?.acme?.accessTokenExpiresAt).toBeDefined();
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -111,10 +111,15 @@ describe("graphql() with config OAuth token + refreshToken on 401", () => {
     delete process.env.LINEAR_CLIENT_SECRET;
 
     await saveConfig({
-      accessToken: "old-access-token",
-      refreshToken: "my-refresh-token",
-      oauthClientId: "config-client-id",
-      oauthClientSecret: "config-client-secret",
+      defaultWorkspace: "acme",
+      workspaces: {
+        acme: {
+          accessToken: "old-access-token",
+          refreshToken: "my-refresh-token",
+          oauthClientId: "config-client-id",
+          oauthClientSecret: "config-client-secret",
+        },
+      },
       outputFormat: "table",
     });
 
@@ -123,6 +128,7 @@ describe("graphql() with config OAuth token + refreshToken on 401", () => {
       token: "old-access-token",
       source: "config",
       kind: "oauth",
+      workspace: "acme",
       refreshToken: "my-refresh-token",
     };
 
@@ -171,6 +177,7 @@ describe("graphql() with config OAuth token + refreshToken on 401", () => {
       token: "no-refresh-token",
       source: "config",
       kind: "oauth",
+      workspace: "acme",
     };
 
     let callCount = 0;
@@ -248,11 +255,23 @@ describe("graphql() with config OAuth token + refreshToken on 401", () => {
   });
 
   test("does not loop: only retries once after refresh", async () => {
+    await saveConfig({
+      defaultWorkspace: "acme",
+      workspaces: {
+        acme: {
+          accessToken: "old-access-token",
+          refreshToken: "my-refresh-token",
+        },
+      },
+      outputFormat: "table",
+    });
+
     const auth: ResolvedAuth = {
       header: "Bearer old-access-token",
       token: "old-access-token",
       source: "config",
       kind: "oauth",
+      workspace: "acme",
       refreshToken: "my-refresh-token",
     };
 
@@ -283,8 +302,13 @@ describe("graphql() with config OAuth token + refreshToken on 401", () => {
 
   test("persists rotated refresh token from response", async () => {
     await saveConfig({
-      accessToken: "old-token",
-      refreshToken: "old-refresh",
+      defaultWorkspace: "acme",
+      workspaces: {
+        acme: {
+          accessToken: "old-token",
+          refreshToken: "old-refresh",
+        },
+      },
       outputFormat: "table",
     });
 
@@ -293,6 +317,7 @@ describe("graphql() with config OAuth token + refreshToken on 401", () => {
       token: "old-token",
       source: "config",
       kind: "oauth",
+      workspace: "acme",
       refreshToken: "old-refresh",
     };
 
@@ -316,8 +341,31 @@ describe("graphql() with config OAuth token + refreshToken on 401", () => {
     try {
       await graphql(auth, "query { viewer { id } }");
       const config = await loadConfig();
-      expect(config.accessToken).toBe("rotated-access");
-      expect(config.refreshToken).toBe("rotated-refresh");
+      expect(config.workspaces?.acme?.accessToken).toBe("rotated-access");
+      expect(config.workspaces?.acme?.refreshToken).toBe("rotated-refresh");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+describe("fetchOrganization", () => {
+  test("returns organization metadata", async () => {
+    const fetchMock = mock(async () =>
+      makeJsonResponse({
+        data: {
+          organization: { id: "org-1", name: "Acme Inc", urlKey: "acme" },
+        },
+      }),
+    );
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    try {
+      const org = await fetchOrganization("Bearer string-token");
+      expect(org.id).toBe("org-1");
+      expect(org.name).toBe("Acme Inc");
+      expect(org.urlKey).toBe("acme");
     } finally {
       globalThis.fetch = originalFetch;
     }

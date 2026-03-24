@@ -56,13 +56,25 @@ import {
   searchIssues,
   searchProjects,
 } from "./commands/search";
+import {
+  getWorkspaceContext,
+  resetWorkspaceContext,
+  setWorkspaceContext,
+} from "./commands/shared";
 import { listStates } from "./commands/state";
 import { getTeam, listTeams } from "./commands/team";
 import { getUser, listUsers, me } from "./commands/user";
-import { getConfigPath } from "./config";
+import {
+  getConfigPath,
+  loadConfig,
+  migrateConfigOnStartup,
+  setDefaultWorkspace,
+} from "./config";
 import { printCliError } from "./errors";
 
 async function main(): Promise<void> {
+  await migrateConfigOnStartup();
+
   const args = process.argv.slice(2);
   const options = parseArgs(args);
 
@@ -82,59 +94,65 @@ async function main(): Promise<void> {
     process.exit(options.help ? 0 : 1);
   }
 
+  setWorkspaceContext(options.workspace ?? undefined);
+
   // Pass help flag to subcommand handlers
   const subcommandArgs = options.help
     ? ["--help", ...options.args]
     : options.args;
 
-  // Route to command handlers
-  switch (options.command) {
-    case "auth":
-      await handleAuth(options.subcommand, subcommandArgs);
-      break;
-    case "issue":
-      await handleIssue(options.subcommand, subcommandArgs);
-      break;
-    case "team":
-      await handleTeam(options.subcommand, subcommandArgs);
-      break;
-    case "project":
-      await handleProject(options.subcommand, subcommandArgs);
-      break;
-    case "cycle":
-      await handleCycle(options.subcommand, subcommandArgs);
-      break;
-    case "comment":
-      await handleComment(options.subcommand, subcommandArgs);
-      break;
-    case "document":
-      await handleDocument(options.subcommand, subcommandArgs);
-      break;
-    case "label":
-      await handleLabel(options.subcommand, subcommandArgs);
-      break;
-    case "milestone":
-      await handleMilestone(options.subcommand, subcommandArgs);
-      break;
-    case "initiative":
-      await handleInitiative(options.subcommand, subcommandArgs);
-      break;
-    case "user":
-      await handleUser(options.subcommand, subcommandArgs);
-      break;
-    case "state":
-      await handleState(options.subcommand, subcommandArgs);
-      break;
-    case "search":
-      await handleSearch(options.subcommand, subcommandArgs);
-      break;
-    case "graphql":
-      await handleGraphql(getGraphqlArgs(options));
-      break;
-    default:
-      console.error(`Unknown command: ${options.command}`);
-      printHelp();
-      process.exit(1);
+  try {
+    // Route to command handlers
+    switch (options.command) {
+      case "auth":
+        await handleAuth(options.subcommand, subcommandArgs);
+        break;
+      case "issue":
+        await handleIssue(options.subcommand, subcommandArgs);
+        break;
+      case "team":
+        await handleTeam(options.subcommand, subcommandArgs);
+        break;
+      case "project":
+        await handleProject(options.subcommand, subcommandArgs);
+        break;
+      case "cycle":
+        await handleCycle(options.subcommand, subcommandArgs);
+        break;
+      case "comment":
+        await handleComment(options.subcommand, subcommandArgs);
+        break;
+      case "document":
+        await handleDocument(options.subcommand, subcommandArgs);
+        break;
+      case "label":
+        await handleLabel(options.subcommand, subcommandArgs);
+        break;
+      case "milestone":
+        await handleMilestone(options.subcommand, subcommandArgs);
+        break;
+      case "initiative":
+        await handleInitiative(options.subcommand, subcommandArgs);
+        break;
+      case "user":
+        await handleUser(options.subcommand, subcommandArgs);
+        break;
+      case "state":
+        await handleState(options.subcommand, subcommandArgs);
+        break;
+      case "search":
+        await handleSearch(options.subcommand, subcommandArgs);
+        break;
+      case "graphql":
+        await handleGraphql(getGraphqlArgs(options));
+        break;
+      default:
+        console.error(`Unknown command: ${options.command}`);
+        printHelp();
+        process.exit(1);
+    }
+  } finally {
+    resetWorkspaceContext();
   }
 }
 
@@ -143,13 +161,17 @@ function parseAuthArgs(args: string[]): {
   type?: "api" | "oauth";
   refreshToken?: string;
   expiresAt?: string;
+  workspace?: string;
+  positionals: string[];
   help: boolean;
 } {
   let token: string | undefined;
   let type: "api" | "oauth" | undefined;
   let refreshToken: string | undefined;
   let expiresAt: string | undefined;
+  let workspace: string | undefined;
   let help = false;
+  const positionals: string[] = [];
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -181,10 +203,17 @@ function parseAuthArgs(args: string[]): {
       i++;
     } else if (arg?.startsWith("--expires-at=")) {
       expiresAt = arg.slice(13);
+    } else if (arg === "-w" || arg === "--workspace") {
+      workspace = args[i + 1];
+      i++;
+    } else if (arg?.startsWith("--workspace=")) {
+      workspace = arg.slice(12);
+    } else if (arg && !arg.startsWith("-")) {
+      positionals.push(arg);
     }
   }
 
-  return { token, type, refreshToken, expiresAt, help };
+  return { token, type, refreshToken, expiresAt, workspace, positionals, help };
 }
 
 async function handleAuth(
@@ -192,12 +221,13 @@ async function handleAuth(
   args: string[],
 ): Promise<void> {
   const parsed = parseAuthArgs(args);
+  const workspace = parsed.workspace ?? getWorkspaceContext();
 
   switch (subcommand) {
     case "login": {
       if (parsed.help) {
         console.log(`
-Usage: linear auth login [--token <token>] [--type <api|oauth>]
+Usage: linear auth login [--token <token>] [--type <api|oauth>] [--workspace <name>]
 
 Authenticate with Linear using an API token or an OAuth token.
 
@@ -206,6 +236,7 @@ Options:
   --type <api|oauth>          Required with --token or stdin
   --refresh-token <token>     OAuth refresh token (only with --type oauth)
   --expires-at <iso>          Access token expiry as ISO timestamp (only with --type oauth)
+  -w, --workspace <name>      Save credentials to a specific workspace profile
   -h, --help                  Show this help
 
 Interactive login will ask for the token type first.
@@ -251,14 +282,21 @@ Get your API token from:
           ? {
               refreshToken: parsed.refreshToken,
               expiresAt: parsed.expiresAt,
+              workspace,
             }
-          : undefined;
+          : {
+              workspace,
+            };
       const result = await login(token, kind, loginOptions);
 
       if (result.success) {
-        console.log(`Authenticated as: ${result.name}`);
-        if (result.email) {
-          console.log(`Email: ${result.email}`);
+        console.log(
+          `Authenticated as: ${result.name}${result.email ? ` (${result.email})` : ""}`,
+        );
+        if (result.workspace) {
+          console.log(
+            `Workspace: ${result.orgName ?? result.workspace} (${result.workspace})`,
+          );
         }
         console.log(`Token saved to: ${getConfigPath()}`);
       } else {
@@ -271,41 +309,54 @@ Get your API token from:
     case "logout": {
       if (parsed.help) {
         console.log(`
-Usage: linear auth logout
+Usage: linear auth logout [--workspace <name>]
 
 Remove stored API token from config file.
 
 Options:
-  -h, --help  Show this help
+  -w, --workspace <name>  Workspace profile to remove
+  -h, --help              Show this help
 `);
         return;
       }
 
-      await logout();
-      console.log("Logged out. Token removed from config.");
+      await logout(workspace);
+      if (workspace) {
+        console.log(
+          `Logged out from workspace "${workspace}". Token removed from config.`,
+        );
+      } else {
+        console.log("Logged out. Token removed from config.");
+      }
       break;
     }
 
     case "status": {
       if (parsed.help) {
         console.log(`
-Usage: linear auth status
+Usage: linear auth status [--workspace <name>]
 
 Show current authentication status.
 
 Options:
-  -h, --help  Show this help
+  -w, --workspace <name>  Workspace profile to inspect
+  -h, --help              Show this help
 `);
         return;
       }
 
-      const status = await getAuthStatus();
+      const status = await getAuthStatus(workspace);
 
       if (status.authenticated) {
         console.log("Status: Authenticated");
         console.log(`User: ${status.name}`);
         if (status.email) {
           console.log(`Email: ${status.email}`);
+        }
+        if (status.workspace) {
+          console.log(
+            `Workspace: ${status.orgName ?? status.workspace} (${status.workspace})`,
+          );
         }
         console.log(
           `Token source: ${status.tokenSource === "env" ? "environment variable" : "config file"}`,
@@ -325,9 +376,83 @@ Options:
       break;
     }
 
+    case "list": {
+      if (parsed.help) {
+        console.log(`
+Usage: linear auth list
+
+List configured workspace profiles.
+
+Options:
+  -h, --help  Show this help
+`);
+        return;
+      }
+
+      const config = await loadConfig();
+      const entries = Object.entries(config.workspaces ?? {});
+
+      if (entries.length === 0) {
+        console.log("No workspace profiles configured.");
+        return;
+      }
+
+      const rows = entries.map(([name, profile]) => {
+        const type = profile.accessToken
+          ? "oauth"
+          : profile.apiToken
+            ? "api"
+            : "-";
+        const marker = config.defaultWorkspace === name ? "*" : "";
+        return [name, profile.orgName ?? "-", type, marker];
+      });
+
+      const headers = ["NAME", "ORG", "TYPE", "DEFAULT"];
+      const widths = headers.map((header, index) =>
+        Math.max(
+          header.length,
+          ...rows.map((row) => (row[index] ?? "").length),
+        ),
+      );
+
+      console.log(headers.map((h, i) => h.padEnd(widths[i] ?? 0)).join("  "));
+      for (const row of rows) {
+        console.log(
+          row.map((cell, i) => cell.padEnd(widths[i] ?? 0)).join("  "),
+        );
+      }
+      break;
+    }
+
+    case "use": {
+      if (parsed.help) {
+        console.log(`
+Usage: linear auth use <name>
+
+Set default workspace profile.
+
+Options:
+  -h, --help  Show this help
+`);
+        return;
+      }
+
+      const name = parsed.positionals[0];
+      if (!name) {
+        console.error(
+          "Error: Missing workspace name. Usage: linear auth use <name>",
+        );
+        process.exit(1);
+      }
+
+      await setDefaultWorkspace(name);
+      console.log(`Default workspace set to "${name}".`);
+      break;
+    }
+
     default:
       console.error(
-        `Usage: linear auth <login|logout|status>\n\nSubcommands:\n  login   Authenticate with API token\n  logout  Remove stored credentials\n  status  Show authentication status`,
+        `Usage: linear auth <login|logout|status|list|use>\n\nSubcommands:\n  login   Authenticate with API token\n  logout  Remove stored credentials\n  status  Show authentication status\n  list    List workspace profiles\n  use     Set default workspace`,
       );
       process.exit(1);
   }

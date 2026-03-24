@@ -10,6 +10,55 @@
       "type": "string",
       "format": "uri"
     },
+    "defaultWorkspace": {
+      "type": "string",
+      "description": "Name of the default workspace profile."
+    },
+    "workspaces": {
+      "type": "object",
+      "description": "Named workspace profiles.",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "apiToken": {
+            "type": "string"
+          },
+          "oauth": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "access": {
+                "type": "string"
+              },
+              "refresh": {
+                "type": "string"
+              },
+              "expiresAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "clientId": {
+                "type": "string"
+              },
+              "clientSecret": {
+                "type": "string"
+              }
+            }
+          },
+          "orgName": {
+            "type": "string"
+          },
+          "defaultTeamKey": {
+            "type": "string"
+          },
+          "outputFormat": {
+            "type": "string",
+            "enum": ["json", "table"]
+          }
+        }
+      }
+    },
     "apiToken": {
       "type": "string",
       "description": "Linear personal API key."

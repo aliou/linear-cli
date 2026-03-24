@@ -2,12 +2,26 @@ import type { ResolvedAuth } from "../api.ts";
 import { graphql } from "../api.ts";
 import type { ParsedArgs } from "../args.ts";
 import { getBoolean } from "../args.ts";
-import { loadConfig, resolveAuth } from "../config.ts";
+import { loadMergedConfig, resolveAuth } from "../config.ts";
 
 export type { ResolvedAuth };
 
+let workspaceOverride: string | undefined;
+
+export function setWorkspaceContext(workspace: string | undefined): void {
+  workspaceOverride = workspace;
+}
+
+export function getWorkspaceContext(): string | undefined {
+  return workspaceOverride;
+}
+
+export function resetWorkspaceContext(): void {
+  workspaceOverride = undefined;
+}
+
 export async function requireAuth(): Promise<ResolvedAuth> {
-  const auth = await resolveAuth();
+  const auth = await resolveAuth({ workspace: getWorkspaceContext() });
   if (!auth) {
     console.error("Error: Not authenticated. Run 'linear auth login' first.");
     process.exit(1);
@@ -203,7 +217,9 @@ export async function resolveDelegate(
 
 export async function useJson(parsed: ParsedArgs): Promise<boolean> {
   if (getBoolean(parsed, "json")) return true;
-  const config = await loadConfig();
+  const { config } = await loadMergedConfig({
+    workspace: getWorkspaceContext(),
+  });
   return config.outputFormat === "json";
 }
 

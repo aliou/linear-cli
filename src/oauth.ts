@@ -3,7 +3,12 @@
  * Kept in a separate module to avoid circular dependencies between api.ts and auth.ts.
  */
 
-import { resolveOAuthClientCredentials, updateConfig } from "./config.ts";
+import {
+  loadConfig,
+  resolveOAuthClientCredentials,
+  saveWorkspaceProfile,
+} from "./config.ts";
+import { CliError } from "./errors.ts";
 /**
  * Exchange a refresh token for a new access token using Linear's OAuth endpoint.
  * Uses LINEAR_CLIENT_ID / LINEAR_CLIENT_SECRET from env when present,
@@ -12,8 +17,9 @@ import { resolveOAuthClientCredentials, updateConfig } from "./config.ts";
  */
 export async function refreshOAuthToken(
   currentRefreshToken: string,
+  workspace: string,
 ): Promise<string> {
-  const credentials = await resolveOAuthClientCredentials();
+  const credentials = await resolveOAuthClientCredentials({ workspace });
 
   if (!credentials) {
     throw new Error(
@@ -61,7 +67,22 @@ export async function refreshOAuthToken(
       ? new Date(Date.now() + data.expires_in * 1000).toISOString()
       : undefined;
 
-  await updateConfig({
+  const config = await loadConfig();
+  const currentProfile = config.workspaces?.[workspace];
+  if (!currentProfile) {
+    throw new CliError(
+      `Cannot refresh OAuth token: workspace "${workspace}" not found in config.`,
+      {
+        suggestion:
+          "Run 'linear auth login --workspace " +
+          workspace +
+          "' to re-authenticate this workspace.",
+      },
+    );
+  }
+
+  await saveWorkspaceProfile(workspace, {
+    ...currentProfile,
     accessToken: data.access_token,
     refreshToken: data.refresh_token ?? currentRefreshToken,
     accessTokenExpiresAt,

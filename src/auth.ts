@@ -3,14 +3,15 @@
  * Handles token storage, validation, and auth status.
  */
 
-import { fetchViewer } from "./api.ts";
+import { fetchOrganization, fetchViewer } from "./api.ts";
 import {
   checkConfigPermissions,
   loadConfig,
+  type ResolvedAuth,
   resolveAuth,
   saveConfig,
-  updateConfig,
 } from "./config.ts";
+import { CliError } from "./errors.ts";
 import { refreshOAuthToken } from "./oauth.ts";
 
 export { refreshOAuthToken };
@@ -19,6 +20,8 @@ export interface AuthStatus {
   authenticated: boolean;
   name?: string;
   email?: string;
+  workspace?: string;
+  orgName?: string;
   tokenSource?: "env" | "config";
   error?: string;
 }
@@ -27,6 +30,8 @@ export interface LoginResult {
   success: boolean;
   name?: string;
   email?: string;
+  workspace?: string;
+  orgName?: string;
   error?: string;
 }
 
@@ -43,32 +48,113 @@ function formatTokenForApi(token: string, kind: TokenKind): string {
 export async function login(
   token: string,
   kind: TokenKind,
-  options?: { refreshToken?: string; expiresAt?: string },
+  options?: { refreshToken?: string; expiresAt?: string; workspace?: string },
 ): Promise<LoginResult> {
   try {
     const trimmedToken = token.trim();
-    const viewer = await fetchViewer(formatTokenForApi(trimmedToken, kind));
+    const authHeader = formatTokenForApi(trimmedToken, kind);
+
+    const viewer = await fetchViewer(authHeader);
+
+    const explicitWorkspace = options?.workspace?.trim();
+    if (options?.workspace !== undefined && !explicitWorkspace) {
+      return {
+        success: false,
+        error: "Workspace name cannot be empty.",
+      };
+    }
+
+    let organization:
+      | {
+          id: string;
+          name: string;
+          urlKey: string;
+        }
+      | undefined;
+
+    try {
+      organization = await fetchOrganization(authHeader);
+    } catch {
+      // Some tokens validate viewer but may not allow organization query.
+      // Keep login working and fall back to explicit/default workspace naming.
+      organization = undefined;
+    }
+
+    const config = await loadConfig();
+
+    let workspace = explicitWorkspace ?? organization?.urlKey;
+    if (!workspace) {
+      const names = Object.keys(config.workspaces ?? {});
+      if (names.length === 1) {
+        workspace = names[0];
+      }
+    }
+
+    if (!workspace) {
+      return {
+        success: false,
+        error:
+          "Could not auto-detect workspace. Re-run with --workspace <name>.",
+      };
+    }
+
+    const workspaces = { ...(config.workspaces ?? {}) };
+    const currentProfile = workspaces[workspace] ?? {};
+    const hadWorkspaces = Object.keys(workspaces).length > 0;
+    const isImplicitLegacyDefault =
+      config.defaultWorkspace === "default" &&
+      workspace !== "default" &&
+      Object.keys(config.workspaces ?? {}).length === 1 &&
+      (config.apiToken !== undefined ||
+        config.accessToken !== undefined ||
+        config.refreshToken !== undefined);
 
     if (kind === "oauth") {
-      await updateConfig({
+      const { apiToken: _unusedApiToken, ...restProfile } = currentProfile;
+      workspaces[workspace] = {
+        ...restProfile,
+        orgName: organization?.name ?? currentProfile.orgName,
         accessToken: trimmedToken,
-        apiToken: undefined,
-        refreshToken: options?.refreshToken,
-        accessTokenExpiresAt: options?.expiresAt,
-      });
+        ...(options?.refreshToken !== undefined
+          ? { refreshToken: options.refreshToken }
+          : {}),
+        ...(options?.expiresAt !== undefined
+          ? { accessTokenExpiresAt: options.expiresAt }
+          : {}),
+      };
     } else {
-      await updateConfig({
+      const {
+        accessToken: _unusedAccessToken,
+        refreshToken: _unusedRefreshToken,
+        accessTokenExpiresAt: _unusedExpiresAt,
+        ...restProfile
+      } = currentProfile;
+      workspaces[workspace] = {
+        ...restProfile,
+        orgName: organization?.name ?? currentProfile.orgName,
         apiToken: trimmedToken,
-        accessToken: undefined,
-        refreshToken: undefined,
-        accessTokenExpiresAt: undefined,
-      });
+      };
     }
+
+    if (isImplicitLegacyDefault) {
+      delete workspaces.default;
+    }
+
+    await saveConfig({
+      ...config,
+      workspaces,
+      defaultWorkspace:
+        !hadWorkspaces || isImplicitLegacyDefault
+          ? workspace
+          : config.defaultWorkspace,
+    });
 
     return {
       success: true,
       name: viewer.name,
       email: viewer.email,
+      workspace,
+      orgName: organization?.name,
     };
   } catch (error) {
     return {
@@ -81,23 +167,84 @@ export async function login(
 /**
  * Perform logout: remove token and related OAuth fields from config.
  */
-export async function logout(): Promise<void> {
+export async function logout(workspace?: string): Promise<void> {
   const config = await loadConfig();
+
+  const workspaceNames = Object.keys(config.workspaces ?? {});
+
+  if (!workspace) {
+    if (
+      config.defaultWorkspace &&
+      workspaceNames.includes(config.defaultWorkspace)
+    ) {
+      workspace = config.defaultWorkspace;
+    } else if (workspaceNames.length === 1) {
+      workspace = workspaceNames[0];
+    }
+  }
+
+  if (!workspace && workspaceNames.length > 1) {
+    throw new CliError(
+      "Multiple workspaces configured. Specify one with --workspace or set a default with 'linear auth use <name>'.",
+      {
+        suggestion: `Available workspaces: ${workspaceNames.join(", ")}`,
+      },
+    );
+  }
+
+  if (
+    workspace &&
+    !config.workspaces?.[workspace] &&
+    workspaceNames.length > 0
+  ) {
+    throw new CliError(`Workspace "${workspace}" not found in config.`, {
+      suggestion: `Run 'linear auth list' to see available workspaces: ${workspaceNames.join(", ")}`,
+    });
+  }
+
+  if (workspace && config.workspaces?.[workspace]) {
+    const workspaces = { ...config.workspaces };
+    delete workspaces[workspace];
+
+    const nextDefault =
+      config.defaultWorkspace === workspace ||
+      (config.defaultWorkspace !== undefined &&
+        !workspaceNames.includes(config.defaultWorkspace))
+        ? undefined
+        : config.defaultWorkspace;
+
+    await saveConfig({
+      ...config,
+      workspaces,
+      defaultWorkspace: nextDefault,
+    });
+    return;
+  }
+
+  // Legacy fallback
   delete config.apiToken;
   delete config.accessToken;
   delete config.refreshToken;
   delete config.accessTokenExpiresAt;
-  delete config.defaultTeamKey;
+  delete config.defaultWorkspace;
   await saveConfig(config);
 }
 
 /**
  * Check current authentication status.
  */
-export async function getAuthStatus(): Promise<AuthStatus> {
+export async function getAuthStatus(workspace?: string): Promise<AuthStatus> {
   await checkConfigPermissions();
 
-  const auth = await resolveAuth();
+  let auth: ResolvedAuth | undefined;
+  try {
+    auth = await resolveAuth({ workspace });
+  } catch (error) {
+    return {
+      authenticated: false,
+      error: error instanceof Error ? error.message : "Unknown error",
+    };
+  }
 
   if (!auth) {
     return {
@@ -108,10 +255,17 @@ export async function getAuthStatus(): Promise<AuthStatus> {
 
   try {
     const viewer = await fetchViewer(auth);
+    const config = await loadConfig();
+    const orgName = auth.workspace
+      ? config.workspaces?.[auth.workspace]?.orgName
+      : undefined;
+
     return {
       authenticated: true,
       name: viewer.name,
       email: viewer.email,
+      workspace: auth.workspace,
+      orgName,
       tokenSource: auth.source,
     };
   } catch (error) {
