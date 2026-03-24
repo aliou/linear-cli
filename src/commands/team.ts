@@ -1,11 +1,5 @@
 import { graphql } from "../api.ts";
-import { getNumber, getPositional, parseArgs, wantsHelp } from "../args.ts";
 import { printTable, requireToken, useJson } from "./shared.ts";
-
-const TEAM_OPTIONS = {
-  limit: { type: "string" as const },
-  json: { type: "boolean" as const },
-};
 
 interface TeamMember {
   id: string;
@@ -39,26 +33,15 @@ interface Team {
   updatedAt?: string;
 }
 
-export async function listTeams(args: string[]): Promise<void> {
-  const parsed = parseArgs(args, TEAM_OPTIONS);
+export interface ListTeamsOptions {
+  limit?: number;
+  json?: boolean;
+}
 
-  if (wantsHelp(parsed)) {
-    console.log(`
-Usage: linear team list [options]
-
-List teams in the workspace.
-
-Options:
-  --limit <n>  Maximum number of teams to return (default: 50)
-  --json       Output as JSON
-  -h, --help   Show this help
-`);
-    return;
-  }
-
+export async function listTeams(options: ListTeamsOptions): Promise<void> {
   const token = await requireToken();
-  const limit = getNumber(parsed, "limit") ?? 50;
-  const json = await useJson(parsed);
+  const limit = options.limit ?? 50;
+  const json = await useJson(options.json);
 
   const query = `
     query Teams($first: Int) {
@@ -103,36 +86,16 @@ Options:
   printTable(headers, rows);
 }
 
-export async function getTeam(args: string[]): Promise<void> {
-  const parsed = parseArgs(args, TEAM_OPTIONS);
+export interface GetTeamOptions {
+  teamRef: string;
+  json?: boolean;
+}
 
-  if (wantsHelp(parsed)) {
-    console.log(`
-Usage: linear team get <team-key-or-id>
-
-Get details for a specific team.
-
-Arguments:
-  team-key-or-id  Team key (e.g. "ENG") or team UUID
-
-Options:
-  --json       Output as JSON
-  -h, --help   Show this help
-`);
-    return;
-  }
-
-  const teamRef = getPositional(parsed, 0);
-  if (!teamRef) {
-    console.error("Error: Team key or ID is required.");
-    console.error("Usage: linear team get <team-key-or-id>");
-    process.exit(1);
-  }
-
+export async function getTeam(options: GetTeamOptions): Promise<void> {
   const token = await requireToken();
-  const json = await useJson(parsed);
+  const json = await useJson(options.json);
 
-  const isUuid = teamRef.includes("-") && teamRef.length > 20;
+  const isUuid = options.teamRef.includes("-") && options.teamRef.length > 20;
 
   let team: Team;
 
@@ -155,7 +118,9 @@ Options:
       }
     `;
 
-    const data = await graphql<{ team: Team }>(token, query, { id: teamRef });
+    const data = await graphql<{ team: Team }>(token, query, {
+      id: options.teamRef,
+    });
     team = data.team;
   } else {
     const query = `
@@ -179,11 +144,11 @@ Options:
     `;
 
     const data = await graphql<{ teams: { nodes: Team[] } }>(token, query, {
-      filter: { key: { eq: teamRef.toUpperCase() } },
+      filter: { key: { eq: options.teamRef.toUpperCase() } },
     });
 
     if (data.teams.nodes.length === 0) {
-      console.error(`Error: Team "${teamRef}" not found.`);
+      console.error(`Error: Team "${options.teamRef}" not found.`);
       process.exit(1);
     }
 

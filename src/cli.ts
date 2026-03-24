@@ -1,135 +1,4 @@
-import { parseArgs as bunParseArgs } from "node:util";
-import { APP_NAME, VERSION } from "./constants";
-
-export interface CliOptions {
-  help: boolean;
-  version: boolean;
-  completion: string | null;
-  workspace: string | null;
-  command: string | null;
-  subcommand: string | null;
-  args: string[];
-}
-
-export function parseArgs(args: string[]): CliOptions {
-  const result = bunParseArgs({
-    args,
-    options: {
-      help: { type: "boolean", short: "h" },
-      version: { type: "boolean", short: "v" },
-      completion: { type: "string" },
-      workspace: { type: "string", short: "w" },
-    },
-    strict: false,
-    allowPositionals: true,
-  });
-
-  const positionals = result.positionals;
-  const command = positionals[0] ?? null;
-  const subcommand = positionals[1] ?? null;
-
-  const subcommandArgs: string[] = [];
-  let foundSubcommand = false;
-
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-    if (!arg) continue;
-
-    if (arg === command && !foundSubcommand) {
-      continue;
-    }
-    if (arg === subcommand && !foundSubcommand) {
-      foundSubcommand = true;
-      continue;
-    }
-
-    if (foundSubcommand) {
-      if (arg === "-v" || arg === "--version") {
-        continue;
-      }
-      if (arg === "--completion" || arg.startsWith("--completion=")) {
-        continue;
-      }
-      if (arg === "-w" || arg === "--workspace") {
-        i++;
-        continue;
-      }
-      if (arg.startsWith("--workspace=")) {
-        continue;
-      }
-      subcommandArgs.push(arg);
-    }
-  }
-
-  return {
-    help: Boolean(result.values.help),
-    version: Boolean(result.values.version),
-    completion:
-      typeof result.values.completion === "string"
-        ? result.values.completion
-        : null,
-    workspace:
-      typeof result.values.workspace === "string"
-        ? result.values.workspace
-        : null,
-    command,
-    subcommand,
-    args: subcommandArgs,
-  };
-}
-
-export function printVersion(): void {
-  console.log(`${APP_NAME} version ${VERSION}`);
-}
-
-export function printHelp(): void {
-  const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
-  const bold = (s: string) => `\x1b[1m${s}\x1b[0m`;
-
-  console.log(`
-${bold("Linear CLI")} - Access Linear from your terminal via GraphQL API
-
-${bold("Usage:")}
-  ${APP_NAME} <command> [subcommand] [flags]
-
-${bold("Commands:")}
-  auth        Manage authentication ${dim("(login, logout, status, list, use)")}
-  issue       Issue operations ${dim("(list, get, create, update, close)")}
-  team        Team operations ${dim("(list, get)")}
-  project     Project operations ${dim("(list, get)")}
-  cycle       Cycle operations ${dim("(list, get)")}
-  comment     Comment operations ${dim("(list, create, update, delete)")}
-  document    Document operations ${dim("(list, get, create, update, delete)")}
-  label       Label operations ${dim("(list, create, update, delete)")}
-  milestone   Milestone operations ${dim("(list, get, create, update, delete)")}
-  initiative  Initiative operations ${dim("(list, get)")}
-  user        User operations ${dim("(list, get, me)")}
-  state       Workflow state operations ${dim("(list)")}
-  search      Search ${dim("(issues, documents, projects)")}
-  graphql     Run arbitrary GraphQL ${dim("(query or mutation)")}
-
-${bold("Flags:")}
-  -h, --help                Show help
-  -v, --version             Show version
-  -w, --workspace <name>    Use a specific workspace profile
-  --completion              Generate shell completion ${dim("(bash, zsh, fish)")}
-
-${bold("Examples:")}
-  ${APP_NAME} auth login
-  ${APP_NAME} issue list --team ENG --limit 10
-  ${APP_NAME} issue get ENG-123
-  ${APP_NAME} issue create --team ENG --title "Fix bug"
-  ${APP_NAME} team list
-  ${APP_NAME} project list
-  ${APP_NAME} graphql 'query { viewer { id name email } }'
-
-${bold("Configuration:")}
-  Config file: ~/.config/linear-cli/config.json
-  API token:   Get from Linear Settings > API > Personal API keys
-
-Use "${APP_NAME} <command> --help" for more information about a command.
-`);
-}
+import { APP_NAME } from "./constants";
 
 export function generateBashCompletion(): string {
   return `# ${APP_NAME} bash completion
@@ -253,16 +122,16 @@ _${APP_NAME}() {
     state_cmds=('list:List workflow states')
     search_cmds=('issues:Search issues' 'documents:Search documents' 'projects:Search projects')
 
-    _arguments -s \\
-        '-h[Show help]' \\
-        '--help[Show help]' \\
-        '-v[Show version]' \\
-        '--version[Show version]' \\
-        '--completion[Generate completion]:shell:(bash zsh fish)' \\
-        '-w[Use a specific workspace profile]:workspace name:' \\
-        '--workspace[Use a specific workspace profile]:workspace name:' \\
-        '1:command:->command' \\
-        '2:subcommand:->subcommand' \\
+    _arguments -s \
+        '-h[Show help]' \
+        '--help[Show help]' \
+        '-v[Show version]' \
+        '--version[Show version]' \
+        '--completion[Generate completion]:shell:(bash zsh fish)' \
+        '-w[Use a specific workspace profile]:workspace name:' \
+        '--workspace[Use a specific workspace profile]:workspace name:' \
+        '1:command:->command' \
+        '2:subcommand:->subcommand' \
         '*::args:->args'
 
     case "$state" in

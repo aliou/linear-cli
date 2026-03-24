@@ -1,46 +1,21 @@
 import { graphql } from "../api.ts";
-import {
-  getNumber,
-  getPositional,
-  getString,
-  parseArgs,
-  wantsHelp,
-} from "../args.ts";
 import { pad, printTable, requireToken, useJson } from "./shared.ts";
 
-const DOCUMENT_OPTIONS = {
-  title: { type: "string" as const },
-  content: { type: "string" as const },
-  project: { type: "string" as const },
-  limit: { type: "string" as const },
-  json: { type: "boolean" as const },
-};
+export interface ListDocumentsOptions {
+  project?: string;
+  limit?: number;
+  json?: boolean;
+}
 
-export async function listDocuments(args: string[]): Promise<void> {
-  const parsed = parseArgs(args, DOCUMENT_OPTIONS);
-
-  if (wantsHelp(parsed)) {
-    console.log(`
-Usage: linear document list [options]
-
-List documents.
-
-Options:
-  --project <id>   Filter by project ID
-  --limit <n>      Number of documents to fetch (default: 50)
-  --json           Output as JSON
-  -h, --help       Show this help
-`);
-    return;
-  }
-
+export async function listDocuments(
+  options: ListDocumentsOptions,
+): Promise<void> {
   const token = await requireToken();
-  const limit = getNumber(parsed, "limit") ?? 50;
-  const projectId = getString(parsed, "project");
+  const limit = options.limit ?? 50;
 
   const filter: Record<string, unknown> = {};
-  if (projectId) {
-    filter.project = { id: { eq: projectId } };
+  if (options.project) {
+    filter.project = { id: { eq: options.project } };
   }
 
   const query = `
@@ -80,7 +55,7 @@ Options:
 
   const documents = data.documents.nodes;
 
-  if (await useJson(parsed)) {
+  if (await useJson(options.json)) {
     console.log(JSON.stringify(documents, null, 2));
     return;
   }
@@ -101,28 +76,12 @@ Options:
   printTable(headers, rows);
 }
 
-export async function getDocument(args: string[]): Promise<void> {
-  const parsed = parseArgs(args, { json: { type: "boolean" as const } });
+export interface GetDocumentOptions {
+  id: string;
+  json?: boolean;
+}
 
-  if (wantsHelp(parsed)) {
-    console.log(`
-Usage: linear document get <id>
-
-Get document details by ID.
-
-Options:
-  --json       Output as JSON
-  -h, --help   Show this help
-`);
-    return;
-  }
-
-  const id = getPositional(parsed, 0);
-  if (!id) {
-    console.error("Error: Document ID is required.");
-    process.exit(1);
-  }
-
+export async function getDocument(options: GetDocumentOptions): Promise<void> {
   const token = await requireToken();
 
   const query = `
@@ -155,11 +114,11 @@ Options:
       updatedAt: string;
       url: string;
     };
-  }>(token, query, { id });
+  }>(token, query, { id: options.id });
 
   const doc = data.document;
 
-  if (await useJson(parsed)) {
+  if (await useJson(options.json)) {
     console.log(JSON.stringify(doc, null, 2));
     return;
   }
@@ -188,44 +147,25 @@ Options:
   }
 }
 
-export async function createDocument(args: string[]): Promise<void> {
-  const parsed = parseArgs(args, DOCUMENT_OPTIONS);
+export interface CreateDocumentOptions {
+  title: string;
+  content: string;
+  project?: string;
+  json?: boolean;
+}
 
-  if (wantsHelp(parsed)) {
-    console.log(`
-Usage: linear document create --title <title> --content <markdown> [options]
-
-Create a new document.
-
-Options:
-  --title <title>      Document title (required)
-  --content <markdown> Document content in markdown (required)
-  --project <id>       Project ID
-  --json               Output as JSON
-  -h, --help           Show this help
-`);
-    return;
-  }
-
-  const title = getString(parsed, "title");
-  const content = getString(parsed, "content");
-
-  if (!title) {
-    console.error("Error: --title is required.");
-    process.exit(1);
-  }
-  if (!content) {
-    console.error("Error: --content is required.");
-    process.exit(1);
-  }
-
+export async function createDocument(
+  options: CreateDocumentOptions,
+): Promise<void> {
   const token = await requireToken();
-  const json = await useJson(parsed);
+  const json = await useJson(options.json);
 
-  const input: Record<string, unknown> = { title, content };
+  const input: Record<string, unknown> = {
+    title: options.title,
+    content: options.content,
+  };
 
-  const project = getString(parsed, "project");
-  if (project) input.projectId = project;
+  if (options.project) input.projectId = options.project;
 
   const mutation = `
     mutation DocumentCreate($input: DocumentCreateInput!) {
@@ -272,40 +212,23 @@ Options:
   console.log(`URL: ${doc.url}`);
 }
 
-export async function updateDocument(args: string[]): Promise<void> {
-  const parsed = parseArgs(args, DOCUMENT_OPTIONS);
+export interface UpdateDocumentOptions {
+  id: string;
+  title?: string;
+  content?: string;
+  json?: boolean;
+}
 
-  if (wantsHelp(parsed)) {
-    console.log(`
-Usage: linear document update <id> [options]
-
-Update an existing document.
-
-Options:
-  --title <title>      New title
-  --content <content>  New content
-  --json               Output as JSON
-  -h, --help           Show this help
-`);
-    return;
-  }
-
-  const id = getPositional(parsed, 0);
-  if (!id) {
-    console.error("Error: Document ID is required.");
-    process.exit(1);
-  }
-
+export async function updateDocument(
+  options: UpdateDocumentOptions,
+): Promise<void> {
   const token = await requireToken();
-  const json = await useJson(parsed);
+  const json = await useJson(options.json);
 
   const input: Record<string, unknown> = {};
 
-  const title = getString(parsed, "title");
-  if (title) input.title = title;
-
-  const content = getString(parsed, "content");
-  if (content) input.content = content;
+  if (options.title) input.title = options.title;
+  if (options.content) input.content = options.content;
 
   if (Object.keys(input).length === 0) {
     console.error("Error: No update flags provided.");
@@ -334,7 +257,7 @@ Options:
         url: string;
       };
     };
-  }>(token, mutation, { id, input });
+  }>(token, mutation, { id: options.id, input });
 
   if (!data.documentUpdate.success) {
     console.error("Error: Failed to update document.");
@@ -352,30 +275,16 @@ Options:
   console.log(`URL: ${doc.url}`);
 }
 
-export async function deleteDocument(args: string[]): Promise<void> {
-  const parsed = parseArgs(args, { json: { type: "boolean" as const } });
+export interface DeleteDocumentOptions {
+  id: string;
+  json?: boolean;
+}
 
-  if (wantsHelp(parsed)) {
-    console.log(`
-Usage: linear document delete <id>
-
-Delete a document.
-
-Options:
-  --json       Output as JSON
-  -h, --help   Show this help
-`);
-    return;
-  }
-
-  const id = getPositional(parsed, 0);
-  if (!id) {
-    console.error("Error: Document ID is required.");
-    process.exit(1);
-  }
-
+export async function deleteDocument(
+  options: DeleteDocumentOptions,
+): Promise<void> {
   const token = await requireToken();
-  const json = await useJson(parsed);
+  const json = await useJson(options.json);
 
   const mutation = `
     mutation DocumentDelete($id: String!) {
@@ -389,7 +298,7 @@ Options:
     documentDelete: {
       success: boolean;
     };
-  }>(token, mutation, { id });
+  }>(token, mutation, { id: options.id });
 
   if (!data.documentDelete.success) {
     console.error("Error: Failed to delete document.");
@@ -397,9 +306,9 @@ Options:
   }
 
   if (json) {
-    console.log(JSON.stringify({ id, deleted: true }, null, 2));
+    console.log(JSON.stringify({ id: options.id, deleted: true }, null, 2));
     return;
   }
 
-  console.log(`Deleted document ${id}`);
+  console.log(`Deleted document ${options.id}`);
 }

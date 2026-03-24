@@ -73,11 +73,10 @@ describe("runGraphql", () => {
     }) as typeof console.log;
 
     try {
-      await runGraphql([
-        "query Issue($id: String!) { issue(id: $id) { id title } }",
-        "--variables",
-        '{"id":"ENG-123"}',
-      ]);
+      await runGraphql({
+        query: "query Issue($id: String!) { issue(id: $id) { id title } }",
+        variables: '{"id":"ENG-123"}',
+      });
 
       expect(requestBody).toEqual({
         query: "query Issue($id: String!) { issue(id: $id) { id title } }",

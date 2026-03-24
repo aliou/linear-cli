@@ -1,48 +1,22 @@
 import { graphql } from "../api.ts";
-import {
-  getNumber,
-  getPositional,
-  getString,
-  parseArgs,
-  wantsHelp,
-} from "../args.ts";
 import { printTable, requireToken, useJson } from "./shared.ts";
 
-const MILESTONE_OPTIONS = {
-  project: { type: "string" as const },
-  name: { type: "string" as const },
-  description: { type: "string" as const },
-  targetDate: { type: "string" as const },
-  limit: { type: "string" as const },
-  json: { type: "boolean" as const },
-};
+export interface ListMilestonesOptions {
+  project?: string;
+  limit?: number;
+  json?: boolean;
+}
 
-export async function listMilestones(args: string[]): Promise<void> {
-  const parsed = parseArgs(args, MILESTONE_OPTIONS);
-
-  if (wantsHelp(parsed)) {
-    console.log(`
-Usage: linear milestone list [options]
-
-List project milestones.
-
-Options:
-  --project <id>   Filter by project ID
-  --limit <n>      Max results (default: 50)
-  --json           Output as JSON
-  -h, --help       Show this help
-`);
-    return;
-  }
-
+export async function listMilestones(
+  options: ListMilestonesOptions,
+): Promise<void> {
   const token = await requireToken();
-  const projectId = getString(parsed, "project");
-  const limit = getNumber(parsed, "limit") ?? 50;
-  const json = await useJson(parsed);
+  const limit = options.limit ?? 50;
+  const json = await useJson(options.json);
 
   const filter: Record<string, unknown> = {};
-  if (projectId) {
-    filter.project = { id: { eq: projectId } };
+  if (options.project) {
+    filter.project = { id: { eq: options.project } };
   }
 
   const query = `
@@ -101,30 +75,16 @@ Options:
   printTable(headers, rows);
 }
 
-export async function getMilestone(args: string[]): Promise<void> {
-  const parsed = parseArgs(args, MILESTONE_OPTIONS);
+export interface GetMilestoneOptions {
+  id: string;
+  json?: boolean;
+}
 
-  if (wantsHelp(parsed)) {
-    console.log(`
-Usage: linear milestone get <id>
-
-Get milestone details by UUID.
-
-Options:
-  --json       Output as JSON
-  -h, --help   Show this help
-`);
-    return;
-  }
-
-  const milestoneId = getPositional(parsed, 0);
-  if (!milestoneId) {
-    console.error("Error: Milestone ID is required.");
-    process.exit(1);
-  }
-
+export async function getMilestone(
+  options: GetMilestoneOptions,
+): Promise<void> {
   const token = await requireToken();
-  const json = await useJson(parsed);
+  const json = await useJson(options.json);
 
   const query = `
     query ProjectMilestone($id: String!) {
@@ -166,7 +126,7 @@ Options:
       createdAt: string;
       updatedAt: string;
     };
-  }>(token, query, { id: milestoneId });
+  }>(token, query, { id: options.id });
 
   const milestone = data.projectMilestone;
 
@@ -197,48 +157,27 @@ Options:
   }
 }
 
-export async function createMilestone(args: string[]): Promise<void> {
-  const parsed = parseArgs(args, MILESTONE_OPTIONS);
+export interface CreateMilestoneOptions {
+  project: string;
+  name: string;
+  description?: string;
+  targetDate?: string;
+  json?: boolean;
+}
 
-  if (wantsHelp(parsed)) {
-    console.log(`
-Usage: linear milestone create --project <id> --name <name> [options]
-
-Create a new project milestone.
-
-Options:
-  --project <id>        Project ID (required)
-  --name <name>         Milestone name (required)
-  --description <text>  Description
-  --targetDate <date>   Target date (YYYY-MM-DD)
-  --json                Output as JSON
-  -h, --help            Show this help
-`);
-    return;
-  }
-
+export async function createMilestone(
+  options: CreateMilestoneOptions,
+): Promise<void> {
   const token = await requireToken();
-  const json = await useJson(parsed);
+  const json = await useJson(options.json);
 
-  const projectId = getString(parsed, "project");
-  if (!projectId) {
-    console.error("Error: --project is required.");
-    process.exit(1);
-  }
+  const input: Record<string, unknown> = {
+    projectId: options.project,
+    name: options.name,
+  };
 
-  const name = getString(parsed, "name");
-  if (!name) {
-    console.error("Error: --name is required.");
-    process.exit(1);
-  }
-
-  const input: Record<string, unknown> = { projectId, name };
-
-  const description = getString(parsed, "description");
-  if (description) input.description = description;
-
-  const targetDate = getString(parsed, "targetDate");
-  if (targetDate) input.targetDate = targetDate;
+  if (options.description) input.description = options.description;
+  if (options.targetDate) input.targetDate = options.targetDate;
 
   const mutation = `
     mutation ProjectMilestoneCreate($input: ProjectMilestoneCreateInput!) {
@@ -283,44 +222,25 @@ Options:
   console.log(`Target Date: ${milestone.targetDate ?? "Not set"}`);
 }
 
-export async function updateMilestone(args: string[]): Promise<void> {
-  const parsed = parseArgs(args, MILESTONE_OPTIONS);
+export interface UpdateMilestoneOptions {
+  id: string;
+  name?: string;
+  description?: string;
+  targetDate?: string;
+  json?: boolean;
+}
 
-  if (wantsHelp(parsed)) {
-    console.log(`
-Usage: linear milestone update <id> [options]
-
-Update an existing project milestone.
-
-Options:
-  --name <name>         New name
-  --description <text>  New description
-  --targetDate <date>   New target date (YYYY-MM-DD)
-  --json                Output as JSON
-  -h, --help            Show this help
-`);
-    return;
-  }
-
-  const id = getPositional(parsed, 0);
-  if (!id) {
-    console.error("Error: Milestone ID is required.");
-    process.exit(1);
-  }
-
+export async function updateMilestone(
+  options: UpdateMilestoneOptions,
+): Promise<void> {
   const token = await requireToken();
-  const json = await useJson(parsed);
+  const json = await useJson(options.json);
 
   const input: Record<string, unknown> = {};
 
-  const name = getString(parsed, "name");
-  if (name) input.name = name;
-
-  const description = getString(parsed, "description");
-  if (description) input.description = description;
-
-  const targetDate = getString(parsed, "targetDate");
-  if (targetDate) input.targetDate = targetDate;
+  if (options.name) input.name = options.name;
+  if (options.description) input.description = options.description;
+  if (options.targetDate) input.targetDate = options.targetDate;
 
   if (Object.keys(input).length === 0) {
     console.error("Error: No update flags provided.");
@@ -349,7 +269,7 @@ Options:
         targetDate: string | null;
       };
     };
-  }>(token, mutation, { id, input });
+  }>(token, mutation, { id: options.id, input });
 
   if (!data.projectMilestoneUpdate.success) {
     console.error("Error: Failed to update milestone.");
@@ -367,30 +287,16 @@ Options:
   console.log(`Target Date: ${milestone.targetDate ?? "Not set"}`);
 }
 
-export async function deleteMilestone(args: string[]): Promise<void> {
-  const parsed = parseArgs(args, MILESTONE_OPTIONS);
+export interface DeleteMilestoneOptions {
+  id: string;
+  json?: boolean;
+}
 
-  if (wantsHelp(parsed)) {
-    console.log(`
-Usage: linear milestone delete <id>
-
-Delete a project milestone.
-
-Options:
-  --json       Output as JSON
-  -h, --help   Show this help
-`);
-    return;
-  }
-
-  const id = getPositional(parsed, 0);
-  if (!id) {
-    console.error("Error: Milestone ID is required.");
-    process.exit(1);
-  }
-
+export async function deleteMilestone(
+  options: DeleteMilestoneOptions,
+): Promise<void> {
   const token = await requireToken();
-  const json = await useJson(parsed);
+  const json = await useJson(options.json);
 
   const mutation = `
     mutation ProjectMilestoneDelete($id: String!) {
@@ -404,7 +310,7 @@ Options:
     projectMilestoneDelete: {
       success: boolean;
     };
-  }>(token, mutation, { id });
+  }>(token, mutation, { id: options.id });
 
   if (!data.projectMilestoneDelete.success) {
     console.error("Error: Failed to delete milestone.");
@@ -412,9 +318,9 @@ Options:
   }
 
   if (json) {
-    console.log(JSON.stringify({ deleted: true, id }, null, 2));
+    console.log(JSON.stringify({ deleted: true, id: options.id }, null, 2));
     return;
   }
 
-  console.log(`Deleted milestone ${id}`);
+  console.log(`Deleted milestone ${options.id}`);
 }

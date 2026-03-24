@@ -1,11 +1,5 @@
 import { graphql } from "../api.ts";
-import { getNumber, getPositional, parseArgs, wantsHelp } from "../args.ts";
 import { pad, printTable, requireToken, useJson } from "./shared.ts";
-
-const USER_OPTIONS = {
-  limit: { type: "string" as const },
-  json: { type: "boolean" as const },
-};
 
 interface User {
   id: string;
@@ -20,26 +14,15 @@ interface User {
   updatedAt?: string;
 }
 
-export async function listUsers(args: string[]): Promise<void> {
-  const parsed = parseArgs(args, USER_OPTIONS);
+export interface ListUsersOptions {
+  limit?: number;
+  json?: boolean;
+}
 
-  if (wantsHelp(parsed)) {
-    console.log(`
-Usage: linear user list [options]
-
-List users in the workspace.
-
-Options:
-  --limit <n>  Maximum number of users to return (default: 50)
-  --json       Output as JSON
-  -h, --help   Show this help
-`);
-    return;
-  }
-
+export async function listUsers(options: ListUsersOptions): Promise<void> {
   const token = await requireToken();
-  const limit = getNumber(parsed, "limit") ?? 50;
-  const json = await useJson(parsed);
+  const limit = options.limit ?? 50;
+  const json = await useJson(options.json);
 
   const query = `
     query Users($first: Int) {
@@ -86,34 +69,14 @@ Options:
   printTable(headers, rows);
 }
 
-export async function getUser(args: string[]): Promise<void> {
-  const parsed = parseArgs(args, USER_OPTIONS);
+export interface GetUserOptions {
+  id: string;
+  json?: boolean;
+}
 
-  if (wantsHelp(parsed)) {
-    console.log(`
-Usage: linear user get <id>
-
-Get details for a specific user.
-
-Arguments:
-  id  User UUID
-
-Options:
-  --json       Output as JSON
-  -h, --help   Show this help
-`);
-    return;
-  }
-
-  const userId = getPositional(parsed, 0);
-  if (!userId) {
-    console.error("Error: User ID is required.");
-    console.error("Usage: linear user get <id>");
-    process.exit(1);
-  }
-
+export async function getUser(options: GetUserOptions): Promise<void> {
   const token = await requireToken();
-  const json = await useJson(parsed);
+  const json = await useJson(options.json);
 
   const query = `
     query User($id: String!) {
@@ -132,7 +95,7 @@ Options:
     }
   `;
 
-  const data = await graphql<{ user: User }>(token, query, { id: userId });
+  const data = await graphql<{ user: User }>(token, query, { id: options.id });
   const user = data.user;
 
   if (json) {
@@ -143,24 +106,13 @@ Options:
   printUserDetail(user);
 }
 
-export async function me(args: string[]): Promise<void> {
-  const parsed = parseArgs(args, USER_OPTIONS);
+export interface MeOptions {
+  json?: boolean;
+}
 
-  if (wantsHelp(parsed)) {
-    console.log(`
-Usage: linear user me
-
-Show the currently authenticated user.
-
-Options:
-  --json       Output as JSON
-  -h, --help   Show this help
-`);
-    return;
-  }
-
+export async function me(options: MeOptions): Promise<void> {
   const token = await requireToken();
-  const json = await useJson(parsed);
+  const json = await useJson(options.json);
 
   const query = `
     query {

@@ -1,11 +1,5 @@
 import { graphql } from "../api.ts";
-import { getNumber, getPositional, parseArgs, wantsHelp } from "../args.ts";
 import { printTable, requireToken, useJson } from "./shared.ts";
-
-const INITIATIVE_OPTIONS = {
-  limit: { type: "string" as const },
-  json: { type: "boolean" as const },
-};
 
 interface InitiativeNode {
   id: string;
@@ -22,25 +16,16 @@ interface InitiativeDetail extends InitiativeNode {
   };
 }
 
-export async function listInitiatives(args: string[]): Promise<void> {
-  const parsed = parseArgs(args, INITIATIVE_OPTIONS);
+export interface ListInitiativesOptions {
+  limit?: number;
+  json?: boolean;
+}
 
-  if (wantsHelp(parsed)) {
-    console.log(`
-Usage: linear initiative list [options]
-
-List initiatives.
-
-Options:
-  --limit <n>      Number of initiatives to fetch (default: 50)
-  --json           Output as JSON
-  -h, --help       Show this help
-`);
-    return;
-  }
-
+export async function listInitiatives(
+  options: ListInitiativesOptions,
+): Promise<void> {
   const token = await requireToken();
-  const limit = getNumber(parsed, "limit") ?? 50;
+  const limit = options.limit ?? 50;
 
   const query = `
     query Initiatives($first: Int) {
@@ -65,7 +50,7 @@ Options:
 
   const initiatives = data.initiatives.nodes;
 
-  if (await useJson(parsed)) {
+  if (await useJson(options.json)) {
     console.log(JSON.stringify(initiatives, null, 2));
     return;
   }
@@ -80,28 +65,14 @@ Options:
   printTable(headers, rows);
 }
 
-export async function getInitiative(args: string[]): Promise<void> {
-  const parsed = parseArgs(args, { json: { type: "boolean" as const } });
+export interface GetInitiativeOptions {
+  id: string;
+  json?: boolean;
+}
 
-  if (wantsHelp(parsed)) {
-    console.log(`
-Usage: linear initiative get <id>
-
-Get initiative details by ID.
-
-Options:
-  --json       Output as JSON
-  -h, --help   Show this help
-`);
-    return;
-  }
-
-  const initiativeId = getPositional(parsed, 0);
-  if (!initiativeId) {
-    console.error("Error: Initiative ID is required.");
-    process.exit(1);
-  }
-
+export async function getInitiative(
+  options: GetInitiativeOptions,
+): Promise<void> {
   const token = await requireToken();
 
   const query = `
@@ -119,12 +90,12 @@ Options:
   `;
 
   const data = await graphql<{ initiative: InitiativeDetail }>(token, query, {
-    id: initiativeId,
+    id: options.id,
   });
 
   const initiative = data.initiative;
 
-  if (await useJson(parsed)) {
+  if (await useJson(options.json)) {
     console.log(JSON.stringify(initiative, null, 2));
     return;
   }

@@ -1,5 +1,4 @@
 import { graphql } from "../api.ts";
-import { getPositional, getString, parseArgs, wantsHelp } from "../args.ts";
 import {
   formatDate,
   printTable,
@@ -8,39 +7,16 @@ import {
   useJson,
 } from "./shared.ts";
 
-const COMMENT_OPTIONS = {
-  issue: { type: "string" as const },
-  body: { type: "string" as const },
-  json: { type: "boolean" as const },
-  limit: { type: "string" as const },
-};
+export interface ListCommentsOptions {
+  issue: string;
+  json?: boolean;
+}
 
-export async function listComments(args: string[]): Promise<void> {
-  const parsed = parseArgs(args, COMMENT_OPTIONS);
-
-  if (wantsHelp(parsed)) {
-    console.log(`
-Usage: linear comment list [options]
-
-List comments on an issue.
-
-Options:
-  --issue <identifier>  Issue identifier (required)
-  --json                Output as JSON
-  -h, --help            Show this help
-`);
-    return;
-  }
-
-  const issueId = getString(parsed, "issue");
-  if (!issueId) {
-    console.error("Error: --issue is required.");
-    console.error("Usage: linear comment list --issue <identifier>");
-    process.exit(1);
-  }
-
+export async function listComments(
+  options: ListCommentsOptions,
+): Promise<void> {
   const token = await requireToken();
-  const json = await useJson(parsed);
+  const json = await useJson(options.json);
 
   const query = `
     query IssueComments($id: String!) {
@@ -70,7 +46,7 @@ Options:
         }>;
       };
     };
-  }>(token, query, { id: issueId });
+  }>(token, query, { id: options.issue });
 
   const comments = data.issue.comments.nodes;
 
@@ -94,44 +70,17 @@ Options:
   printTable(headers, rows);
 }
 
-export async function createComment(args: string[]): Promise<void> {
-  const parsed = parseArgs(args, COMMENT_OPTIONS);
+export interface CreateCommentOptions {
+  issue: string;
+  body: string;
+  json?: boolean;
+}
 
-  if (wantsHelp(parsed)) {
-    console.log(`
-Usage: linear comment create [options]
-
-Create a comment on an issue.
-
-Options:
-  --issue <identifier>  Issue identifier (required)
-  --body <text>         Comment body (required)
-  --json                Output as JSON
-  -h, --help            Show this help
-`);
-    return;
-  }
-
-  const issueIdentifier = getString(parsed, "issue");
-  if (!issueIdentifier) {
-    console.error("Error: --issue is required.");
-    console.error(
-      "Usage: linear comment create --issue <identifier> --body <text>",
-    );
-    process.exit(1);
-  }
-
-  const body = getString(parsed, "body");
-  if (!body) {
-    console.error("Error: --body is required.");
-    console.error(
-      "Usage: linear comment create --issue <identifier> --body <text>",
-    );
-    process.exit(1);
-  }
-
+export async function createComment(
+  options: CreateCommentOptions,
+): Promise<void> {
   const token = await requireToken();
-  const json = await useJson(parsed);
+  const json = await useJson(options.json);
 
   const issueQuery = `
     query Issue($id: String!) {
@@ -143,7 +92,7 @@ Options:
 
   const issueData = await graphql<{
     issue: { id: string };
-  }>(token, issueQuery, { id: issueIdentifier });
+  }>(token, issueQuery, { id: options.issue });
 
   const issueId = issueData.issue.id;
 
@@ -173,7 +122,7 @@ Options:
         url: string;
       };
     };
-  }>(token, mutation, { input: { issueId, body } });
+  }>(token, mutation, { input: { issueId, body: options.body } });
 
   if (!data.commentCreate.success) {
     console.error("Error: Failed to create comment.");
@@ -192,39 +141,17 @@ Options:
   console.log(`URL: ${comment.url}`);
 }
 
-export async function updateComment(args: string[]): Promise<void> {
-  const parsed = parseArgs(args, COMMENT_OPTIONS);
+export interface UpdateCommentOptions {
+  id: string;
+  body: string;
+  json?: boolean;
+}
 
-  if (wantsHelp(parsed)) {
-    console.log(`
-Usage: linear comment update <comment-id> [options]
-
-Update a comment.
-
-Options:
-  --body <text>   New comment body (required)
-  --json          Output as JSON
-  -h, --help      Show this help
-`);
-    return;
-  }
-
-  const id = getPositional(parsed, 0);
-  if (!id) {
-    console.error("Error: Comment ID is required.");
-    console.error("Usage: linear comment update <comment-id> --body <text>");
-    process.exit(1);
-  }
-
-  const body = getString(parsed, "body");
-  if (!body) {
-    console.error("Error: --body is required.");
-    console.error("Usage: linear comment update <comment-id> --body <text>");
-    process.exit(1);
-  }
-
+export async function updateComment(
+  options: UpdateCommentOptions,
+): Promise<void> {
   const token = await requireToken();
-  const json = await useJson(parsed);
+  const json = await useJson(options.json);
 
   const mutation = `
     mutation CommentUpdate($id: String!, $input: CommentUpdateInput!) {
@@ -248,7 +175,7 @@ Options:
         updatedAt: string;
       };
     };
-  }>(token, mutation, { id, input: { body } });
+  }>(token, mutation, { id: options.id, input: { body: options.body } });
 
   if (!data.commentUpdate.success) {
     console.error("Error: Failed to update comment.");
@@ -266,31 +193,16 @@ Options:
   console.log(`Updated: ${formatDate(comment.updatedAt)}`);
 }
 
-export async function deleteComment(args: string[]): Promise<void> {
-  const parsed = parseArgs(args, COMMENT_OPTIONS);
+export interface DeleteCommentOptions {
+  id: string;
+  json?: boolean;
+}
 
-  if (wantsHelp(parsed)) {
-    console.log(`
-Usage: linear comment delete <comment-id>
-
-Delete a comment.
-
-Options:
-  --json         Output as JSON
-  -h, --help     Show this help
-`);
-    return;
-  }
-
-  const id = getPositional(parsed, 0);
-  if (!id) {
-    console.error("Error: Comment ID is required.");
-    console.error("Usage: linear comment delete <comment-id>");
-    process.exit(1);
-  }
-
+export async function deleteComment(
+  options: DeleteCommentOptions,
+): Promise<void> {
   const token = await requireToken();
-  const json = await useJson(parsed);
+  const json = await useJson(options.json);
 
   const mutation = `
     mutation CommentDelete($id: String!) {
@@ -304,7 +216,7 @@ Options:
     commentDelete: {
       success: boolean;
     };
-  }>(token, mutation, { id });
+  }>(token, mutation, { id: options.id });
 
   if (!data.commentDelete.success) {
     console.error("Error: Failed to delete comment.");
@@ -312,9 +224,9 @@ Options:
   }
 
   if (json) {
-    console.log(JSON.stringify({ id, deleted: true }, null, 2));
+    console.log(JSON.stringify({ id: options.id, deleted: true }, null, 2));
     return;
   }
 
-  console.log(`Deleted comment ${id}`);
+  console.log(`Deleted comment ${options.id}`);
 }

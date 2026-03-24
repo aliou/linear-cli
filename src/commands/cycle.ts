@@ -1,45 +1,20 @@
 import { graphql } from "../api.ts";
-import {
-  getNumber,
-  getPositional,
-  getString,
-  parseArgs,
-  wantsHelp,
-} from "../args.ts";
 import { formatDate, printTable, requireToken, useJson } from "./shared.ts";
-
-const CYCLE_OPTIONS = {
-  team: { type: "string" as const },
-  limit: { type: "string" as const },
-  json: { type: "boolean" as const },
-};
 
 function formatProgress(progress: number): string {
   return `${Math.round(progress * 100)}%`;
 }
 
-export async function listCycles(args: string[]): Promise<void> {
-  const parsed = parseArgs(args, CYCLE_OPTIONS);
+export interface ListCyclesOptions {
+  team?: string;
+  limit?: number;
+  json?: boolean;
+}
 
-  if (wantsHelp(parsed)) {
-    console.log(`
-Usage: linear cycle list [options]
-
-List cycles.
-
-Options:
-  --team <key>   Filter by team key
-  --limit <n>    Max results (default: 50)
-  --json         Output as JSON
-  -h, --help     Show this help
-`);
-    return;
-  }
-
+export async function listCycles(options: ListCyclesOptions): Promise<void> {
   const token = await requireToken();
-  const teamKey = getString(parsed, "team");
-  const limit = getNumber(parsed, "limit") ?? 50;
-  const json = await useJson(parsed);
+  const limit = options.limit ?? 50;
+  const json = await useJson(options.json);
 
   const query = `
     query Cycles($first: Int, $filter: CycleFilter) {
@@ -60,8 +35,8 @@ Options:
   `;
 
   const filter: Record<string, unknown> = {};
-  if (teamKey) {
-    filter.team = { key: { eq: teamKey } };
+  if (options.team) {
+    filter.team = { key: { eq: options.team } };
   }
 
   const data = await graphql<{
@@ -116,31 +91,14 @@ Options:
   printTable(headers, rows);
 }
 
-export async function getCycle(args: string[]): Promise<void> {
-  const parsed = parseArgs(args, CYCLE_OPTIONS);
+export interface GetCycleOptions {
+  id: string;
+  json?: boolean;
+}
 
-  if (wantsHelp(parsed)) {
-    console.log(`
-Usage: linear cycle get <cycle-id> [options]
-
-Get cycle details by UUID.
-
-Options:
-  --json       Output as JSON
-  -h, --help   Show this help
-`);
-    return;
-  }
-
-  const cycleId = getPositional(parsed, 0);
-  if (!cycleId) {
-    console.error("Error: Cycle ID is required.");
-    console.error("Usage: linear cycle get <cycle-id>");
-    process.exit(1);
-  }
-
+export async function getCycle(options: GetCycleOptions): Promise<void> {
   const token = await requireToken();
-  const json = await useJson(parsed);
+  const json = await useJson(options.json);
 
   const query = `
     query Cycle($id: String!) {
@@ -194,7 +152,7 @@ Options:
       createdAt: string;
       updatedAt: string;
     };
-  }>(token, query, { id: cycleId });
+  }>(token, query, { id: options.id });
 
   const cycle = data.cycle;
 

@@ -1,21 +1,14 @@
 import { graphqlRequest } from "../api.ts";
-import { getString, parseArgs, wantsHelp } from "../args.ts";
 import { CliError } from "../errors.ts";
 import { requireToken } from "./shared.ts";
 
-const GRAPHQL_OPTIONS = {
-  variables: { type: "string" as const },
-};
+export interface RunGraphqlOptions {
+  query?: string;
+  variables?: string;
+}
 
-export async function runGraphql(args: string[]): Promise<void> {
-  const parsed = parseArgs(args, GRAPHQL_OPTIONS);
-
-  if (wantsHelp(parsed)) {
-    printGraphqlHelp();
-    return;
-  }
-
-  const query = await readQuery(parsed.positionals);
+export async function runGraphql(options: RunGraphqlOptions): Promise<void> {
+  const query = await readQuery(options.query);
   if (!query) {
     throw new CliError("A GraphQL query or mutation is required.", {
       suggestion:
@@ -23,7 +16,7 @@ export async function runGraphql(args: string[]): Promise<void> {
     });
   }
 
-  const variables = parseVariables(getString(parsed, "variables"));
+  const variables = parseVariables(options.variables);
   const token = await requireToken();
   const result = await graphqlRequest(token, query, variables);
 
@@ -32,29 +25,6 @@ export async function runGraphql(args: string[]): Promise<void> {
   }
 
   console.log(JSON.stringify(result.data ?? null, null, 2));
-}
-
-function printGraphqlHelp(): void {
-  console.log(`
-Usage: linear graphql [query] [--variables <json>]
-
-Run an arbitrary GraphQL query or mutation against Linear.
-
-Input:
-  query               GraphQL query or mutation string
-  stdin               If query is omitted, read the GraphQL document from stdin
-
-Options:
-  --variables <json>  Variables object as JSON
-  -h, --help          Show this help
-
-Examples:
-  linear graphql 'query { viewer { id name email } }'
-  linear graphql 'query Issue($id: String!) { issue(id: $id) { id title } }' \\
-    --variables '{"id":"ENG-123"}'
-  linear graphql 'mutation { issueUpdate(id: "...", input: {}) { success } }'
-  echo 'query { viewer { id name } }' | linear graphql
-`);
 }
 
 export function parseVariables(
@@ -84,9 +54,9 @@ export function parseVariables(
   }
 }
 
-async function readQuery(positionals: string[]): Promise<string | undefined> {
-  if (positionals.length > 0) {
-    return positionals.join(" ").trim() || undefined;
+async function readQuery(queryFromArgs?: string): Promise<string | undefined> {
+  if (queryFromArgs) {
+    return queryFromArgs.trim() || undefined;
   }
 
   if (process.stdin.isTTY) {

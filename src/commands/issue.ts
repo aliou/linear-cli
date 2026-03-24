@@ -1,12 +1,5 @@
 import { graphql } from "../api.ts";
 import {
-  getNumber,
-  getPositional,
-  getString,
-  parseArgs,
-  wantsHelp,
-} from "../args.ts";
-import {
   pad,
   printTable,
   requireToken,
@@ -15,65 +8,32 @@ import {
   useJson,
 } from "./shared.ts";
 
-const ISSUE_OPTIONS = {
-  team: { type: "string" as const },
-  assignee: { type: "string" as const },
-  delegate: { type: "string" as const },
-  agent: { type: "string" as const, alias: "delegate" },
-  state: { type: "string" as const },
-  label: { type: "string" as const },
-  limit: { type: "string" as const },
-  title: { type: "string" as const },
-  description: { type: "string" as const },
-  priority: { type: "string" as const },
-  project: { type: "string" as const },
-  estimate: { type: "string" as const },
-  json: { type: "boolean" as const },
-};
+export interface ListIssuesOptions {
+  team?: string;
+  assignee?: string;
+  delegate?: string;
+  agent?: string;
+  state?: string;
+  label?: string;
+  limit?: number;
+  json?: boolean;
+}
 
-export async function listIssues(args: string[]): Promise<void> {
-  const parsed = parseArgs(args, ISSUE_OPTIONS);
-
-  if (wantsHelp(parsed)) {
-    console.log(`
-Usage: linear issue list [flags]
-
-List issues with optional filters.
-
-Options:
-  --team <key>       Filter by team key
-  --assignee <val>   Filter by assignee ("me", email, UUID, or name)
-  --delegate <val>   Filter by delegate/agent (UUID, email, or name)
-  --agent <val>      Alias for --delegate
-  --state <name>     Filter by state name
-  --label <name>     Filter by label name
-  --limit <n>        Max results (default: 50)
-  --json             Output as JSON
-  -h, --help         Show this help
-`);
-    return;
-  }
-
+export async function listIssues(options: ListIssuesOptions): Promise<void> {
   const token = await requireToken();
-  const json = await useJson(parsed);
-
-  const team = getString(parsed, "team");
-  const assigneeRaw = getString(parsed, "assignee");
-  const delegateRaw =
-    getString(parsed, "delegate") ?? getString(parsed, "agent");
-  const state = getString(parsed, "state");
-  const label = getString(parsed, "label");
-  const limit = getNumber(parsed, "limit") ?? 50;
+  const json = await useJson(options.json);
+  const limit = options.limit ?? 50;
 
   const filter: Record<string, unknown> = {};
-  if (team) filter.team = { key: { eq: team } };
+  if (options.team) filter.team = { key: { eq: options.team } };
+
+  const assigneeRaw = options.assignee;
   if (assigneeRaw) {
     if (assigneeRaw.toLowerCase() === "me") {
       filter.assignee = { isMe: { eq: true } };
     } else if (assigneeRaw.toLowerCase() === "none") {
       filter.assignee = { null: true };
     } else {
-      // Resolve the assignee
       try {
         const assigneeId = await resolveAssignee(token, assigneeRaw);
         if (assigneeId) {
@@ -89,6 +49,8 @@ Options:
       }
     }
   }
+
+  const delegateRaw = options.delegate ?? options.agent;
   if (delegateRaw) {
     if (delegateRaw.toLowerCase() === "none") {
       filter.delegate = { null: true };
@@ -108,8 +70,9 @@ Options:
       }
     }
   }
-  if (state) filter.state = { name: { eqIgnoreCase: state } };
-  if (label) filter.labels = { name: { eqIgnoreCase: label } };
+
+  if (options.state) filter.state = { name: { eqIgnoreCase: options.state } };
+  if (options.label) filter.labels = { name: { eqIgnoreCase: options.label } };
 
   const query = `
     query Issues($first: Int, $filter: IssueFilter) {
@@ -183,30 +146,14 @@ Options:
   printTable(headers, rows);
 }
 
-export async function getIssue(args: string[]): Promise<void> {
-  const parsed = parseArgs(args, ISSUE_OPTIONS);
+export interface GetIssueOptions {
+  identifier: string;
+  json?: boolean;
+}
 
-  if (wantsHelp(parsed)) {
-    console.log(`
-Usage: linear issue get <identifier>
-
-Get an issue by identifier (e.g. ENG-123) or UUID.
-
-Options:
-  --json         Output as JSON
-  -h, --help     Show this help
-`);
-    return;
-  }
-
-  const id = getPositional(parsed, 0);
-  if (!id) {
-    console.error("Error: Issue identifier is required.");
-    process.exit(1);
-  }
-
+export async function getIssue(options: GetIssueOptions): Promise<void> {
   const token = await requireToken();
-  const json = await useJson(parsed);
+  const json = await useJson(options.json);
 
   const query = `
     query Issue($id: String!) {
@@ -254,7 +201,7 @@ Options:
       updatedAt: string;
       url: string;
     };
-  }>(token, query, { id });
+  }>(token, query, { id: options.identifier });
 
   const issue = data.issue;
 
@@ -304,47 +251,24 @@ Options:
   }
 }
 
-export async function createIssue(args: string[]): Promise<void> {
-  const parsed = parseArgs(args, ISSUE_OPTIONS);
+export interface CreateIssueOptions {
+  team: string;
+  title: string;
+  description?: string;
+  priority?: number;
+  assignee?: string;
+  delegate?: string;
+  agent?: string;
+  state?: string;
+  label?: string;
+  project?: string;
+  estimate?: number;
+  json?: boolean;
+}
 
-  if (wantsHelp(parsed)) {
-    console.log(`
-Usage: linear issue create --team <key> --title <title> [flags]
-
-Create a new issue.
-
-Options:
-  --team <key>          Team key (required)
-  --title <title>       Issue title (required)
-  --description <text>  Issue description
-  --priority <0-4>      Priority (0=none, 1=urgent, 2=high, 3=medium, 4=low)
-  --assignee <val>      Assignee ("me", email, UUID, or name). Use "none" to clear.
-  --delegate <val>      Delegate/agent (UUID, email, or name of app user). Use "none" to clear.
-  --agent <val>         Alias for --delegate
-  --state <id>          State ID
-  --label <ids>         Label IDs (comma-separated)
-  --project <id>        Project ID
-  --estimate <n>        Estimate value
-  --json                Output as JSON
-  -h, --help            Show this help
-`);
-    return;
-  }
-
-  const teamKey = getString(parsed, "team");
-  const title = getString(parsed, "title");
-
-  if (!teamKey) {
-    console.error("Error: --team is required.");
-    process.exit(1);
-  }
-  if (!title) {
-    console.error("Error: --title is required.");
-    process.exit(1);
-  }
-
+export async function createIssue(options: CreateIssueOptions): Promise<void> {
   const token = await requireToken();
-  const json = await useJson(parsed);
+  const json = await useJson(options.json);
 
   const teamQuery = `
     query TeamByKey($filter: TeamFilter!) {
@@ -356,29 +280,25 @@ Options:
 
   const teamData = await graphql<{
     teams: { nodes: Array<{ id: string; key: string }> };
-  }>(token, teamQuery, { filter: { key: { eq: teamKey } } });
+  }>(token, teamQuery, { filter: { key: { eq: options.team } } });
 
   const team = teamData.teams.nodes[0];
   if (!team) {
-    console.error(`Error: Team with key "${teamKey}" not found.`);
+    console.error(`Error: Team with key "${options.team}" not found.`);
     process.exit(1);
   }
 
   const input: Record<string, unknown> = {
     teamId: team.id,
-    title,
+    title: options.title,
   };
 
-  const description = getString(parsed, "description");
-  if (description) input.description = description;
+  if (options.description) input.description = options.description;
+  if (options.priority != null) input.priority = options.priority;
 
-  const priority = getNumber(parsed, "priority");
-  if (priority != null) input.priority = priority;
-
-  const assigneeRaw = getString(parsed, "assignee");
-  if (assigneeRaw) {
+  if (options.assignee) {
     try {
-      const assigneeId = await resolveAssignee(token, assigneeRaw);
+      const assigneeId = await resolveAssignee(token, options.assignee);
       if (assigneeId) {
         input.assigneeId = assigneeId;
       }
@@ -390,8 +310,7 @@ Options:
     }
   }
 
-  const delegateRaw =
-    getString(parsed, "delegate") ?? getString(parsed, "agent");
+  const delegateRaw = options.delegate ?? options.agent;
   if (delegateRaw) {
     try {
       const delegateId = await resolveDelegate(token, delegateRaw);
@@ -406,17 +325,10 @@ Options:
     }
   }
 
-  const state = getString(parsed, "state");
-  if (state) input.stateId = state;
-
-  const label = getString(parsed, "label");
-  if (label) input.labelIds = label.split(",");
-
-  const project = getString(parsed, "project");
-  if (project) input.projectId = project;
-
-  const estimate = getNumber(parsed, "estimate");
-  if (estimate != null) input.estimate = estimate;
+  if (options.state) input.stateId = options.state;
+  if (options.label) input.labelIds = options.label.split(",");
+  if (options.project) input.projectId = options.project;
+  if (options.estimate != null) input.estimate = options.estimate;
 
   const mutation = `
     mutation IssueCreate($input: IssueCreateInput!) {
@@ -475,63 +387,38 @@ Options:
   console.log(`URL: ${issue.url}`);
 }
 
-export async function updateIssue(args: string[]): Promise<void> {
-  const parsed = parseArgs(args, ISSUE_OPTIONS);
+export interface UpdateIssueOptions {
+  identifier: string;
+  title?: string;
+  description?: string;
+  priority?: number;
+  state?: string;
+  assignee?: string;
+  delegate?: string;
+  agent?: string;
+  label?: string;
+  project?: string;
+  estimate?: number;
+  json?: boolean;
+}
 
-  if (wantsHelp(parsed)) {
-    console.log(`
-Usage: linear issue update <identifier> [flags]
-
-Update an existing issue.
-
-Options:
-  --title <title>       New title
-  --description <text>  New description
-  --priority <0-4>      New priority
-  --state <id>          New state ID
-  --assignee <val>      New assignee ("me", email, UUID, or name). Use "none" to clear.
-  --delegate <val>      New delegate/agent (UUID, email, or name of app user). Use "none" to clear.
-  --agent <val>         Alias for --delegate
-  --label <ids>         New label IDs (comma-separated)
-  --project <id>        New project ID
-  --estimate <n>        New estimate value
-  --json                Output as JSON
-  -h, --help            Show this help
-`);
-    return;
-  }
-
-  const id = getPositional(parsed, 0);
-  if (!id) {
-    console.error("Error: Issue identifier is required.");
-    process.exit(1);
-  }
-
+export async function updateIssue(options: UpdateIssueOptions): Promise<void> {
   const token = await requireToken();
-  const json = await useJson(parsed);
+  const json = await useJson(options.json);
 
   const input: Record<string, unknown> = {};
 
-  const title = getString(parsed, "title");
-  if (title) input.title = title;
+  if (options.title) input.title = options.title;
+  if (options.description) input.description = options.description;
+  if (options.priority != null) input.priority = options.priority;
+  if (options.state) input.stateId = options.state;
 
-  const description = getString(parsed, "description");
-  if (description) input.description = description;
-
-  const priority = getNumber(parsed, "priority");
-  if (priority != null) input.priority = priority;
-
-  const state = getString(parsed, "state");
-  if (state) input.stateId = state;
-
-  const assigneeRaw = getString(parsed, "assignee");
-  if (assigneeRaw) {
+  if (options.assignee) {
     try {
-      const assigneeId = await resolveAssignee(token, assigneeRaw);
+      const assigneeId = await resolveAssignee(token, options.assignee);
       if (assigneeId) {
         input.assigneeId = assigneeId;
       } else {
-        // Clearing assignee
         input.assigneeId = null;
       }
     } catch (err) {
@@ -542,15 +429,13 @@ Options:
     }
   }
 
-  const delegateRaw =
-    getString(parsed, "delegate") ?? getString(parsed, "agent");
+  const delegateRaw = options.delegate ?? options.agent;
   if (delegateRaw) {
     try {
       const delegateId = await resolveDelegate(token, delegateRaw);
       if (delegateId) {
         input.delegateId = delegateId;
       } else {
-        // Clearing delegate
         input.delegateId = null;
       }
     } catch (err) {
@@ -561,14 +446,9 @@ Options:
     }
   }
 
-  const label = getString(parsed, "label");
-  if (label) input.labelIds = label.split(",");
-
-  const project = getString(parsed, "project");
-  if (project) input.projectId = project;
-
-  const estimate = getNumber(parsed, "estimate");
-  if (estimate != null) input.estimate = estimate;
+  if (options.label) input.labelIds = options.label.split(",");
+  if (options.project) input.projectId = options.project;
+  if (options.estimate != null) input.estimate = options.estimate;
 
   if (Object.keys(input).length === 0) {
     console.error("Error: No update flags provided.");
@@ -605,7 +485,7 @@ Options:
         url: string;
       };
     };
-  }>(token, mutation, { id, input });
+  }>(token, mutation, { id: options.identifier, input });
 
   if (!data.issueUpdate.success) {
     console.error("Error: Failed to update issue.");
@@ -630,30 +510,14 @@ Options:
   console.log(`URL: ${issue.url}`);
 }
 
-export async function closeIssue(args: string[]): Promise<void> {
-  const parsed = parseArgs(args, ISSUE_OPTIONS);
+export interface CloseIssueOptions {
+  identifier: string;
+  json?: boolean;
+}
 
-  if (wantsHelp(parsed)) {
-    console.log(`
-Usage: linear issue close <identifier>
-
-Close an issue by setting it to the first completed state.
-
-Options:
-  --json         Output as JSON
-  -h, --help     Show this help
-`);
-    return;
-  }
-
-  const id = getPositional(parsed, 0);
-  if (!id) {
-    console.error("Error: Issue identifier is required.");
-    process.exit(1);
-  }
-
+export async function closeIssue(options: CloseIssueOptions): Promise<void> {
   const token = await requireToken();
-  const json = await useJson(parsed);
+  const json = await useJson(options.json);
 
   const issueQuery = `
     query Issue($id: String!) {
@@ -679,7 +543,7 @@ Options:
         };
       };
     };
-  }>(token, issueQuery, { id });
+  }>(token, issueQuery, { id: options.identifier });
 
   const issue = issueData.issue;
   const completedState = issue.team.states.nodes.find(

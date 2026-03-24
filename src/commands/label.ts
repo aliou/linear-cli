@@ -1,47 +1,19 @@
 import { graphql } from "../api.ts";
-import {
-  getNumber,
-  getPositional,
-  getString,
-  parseArgs,
-  wantsHelp,
-} from "../args.ts";
 import { printTable, requireToken, useJson } from "./shared.ts";
 
-const LABEL_OPTIONS = {
-  team: { type: "string" as const },
-  name: { type: "string" as const },
-  color: { type: "string" as const },
-  description: { type: "string" as const },
-  limit: { type: "string" as const },
-  json: { type: "boolean" as const },
-};
+export interface ListLabelsOptions {
+  team?: string;
+  limit?: number;
+  json?: boolean;
+}
 
-export async function listLabels(args: string[]): Promise<void> {
-  const parsed = parseArgs(args, LABEL_OPTIONS);
-
-  if (wantsHelp(parsed)) {
-    console.log(`
-Usage: linear label list [options]
-
-List issue labels.
-
-Options:
-  --team <key>   Filter by team key
-  --limit <n>    Maximum number of labels to return (default: 50)
-  --json         Output as JSON
-  -h, --help     Show this help
-`);
-    return;
-  }
-
+export async function listLabels(options: ListLabelsOptions): Promise<void> {
   const token = await requireToken();
-  const json = await useJson(parsed);
-  const teamKey = getString(parsed, "team");
-  const limit = getNumber(parsed, "limit") ?? 50;
+  const json = await useJson(options.json);
+  const limit = options.limit ?? 50;
 
   const filter: Record<string, unknown> = {};
-  if (teamKey) filter.team = { key: { eq: teamKey } };
+  if (options.team) filter.team = { key: { eq: options.team } };
 
   const query = `
     query IssueLabels($first: Int, $filter: IssueLabelFilter) {
@@ -96,48 +68,25 @@ Options:
   printTable(headers, rows);
 }
 
-export async function createLabel(args: string[]): Promise<void> {
-  const parsed = parseArgs(args, LABEL_OPTIONS);
+export interface CreateLabelOptions {
+  name: string;
+  color: string;
+  team?: string;
+  description?: string;
+  json?: boolean;
+}
 
-  if (wantsHelp(parsed)) {
-    console.log(`
-Usage: linear label create --name <name> --color <hex> [options]
-
-Create a new issue label.
-
-Options:
-  --name <name>          Label name (required)
-  --color <hex>          Label color hex (required)
-  --team <key>           Team key to scope the label to
-  --description <text>   Label description
-  --json                 Output as JSON
-  -h, --help             Show this help
-`);
-    return;
-  }
-
+export async function createLabel(options: CreateLabelOptions): Promise<void> {
   const token = await requireToken();
-  const json = await useJson(parsed);
+  const json = await useJson(options.json);
 
-  const name = getString(parsed, "name");
-  if (!name) {
-    console.error("Error: --name is required.");
-    process.exit(1);
-  }
+  const input: Record<string, unknown> = {
+    name: options.name,
+    color: options.color,
+  };
+  if (options.description) input.description = options.description;
 
-  const color = getString(parsed, "color");
-  if (!color) {
-    console.error("Error: --color is required.");
-    process.exit(1);
-  }
-
-  const teamKey = getString(parsed, "team");
-  const description = getString(parsed, "description");
-
-  const input: Record<string, unknown> = { name, color };
-  if (description) input.description = description;
-
-  if (teamKey) {
+  if (options.team) {
     const teamQuery = `
       query Teams($filter: TeamFilter!) {
         teams(filter: $filter, first: 1) {
@@ -148,10 +97,10 @@ Options:
 
     const teamData = await graphql<{
       teams: { nodes: Array<{ id: string }> };
-    }>(token, teamQuery, { filter: { key: { eq: teamKey } } });
+    }>(token, teamQuery, { filter: { key: { eq: options.team } } });
 
     if (teamData.teams.nodes.length === 0) {
-      console.error(`Error: Team "${teamKey}" not found.`);
+      console.error(`Error: Team "${options.team}" not found.`);
       process.exit(1);
     }
 
@@ -199,45 +148,23 @@ Options:
   console.log(`Created label "${label.name}" (${label.color})`);
 }
 
-export async function updateLabel(args: string[]): Promise<void> {
-  const parsed = parseArgs(args, LABEL_OPTIONS);
+export interface UpdateLabelOptions {
+  id: string;
+  name?: string;
+  color?: string;
+  description?: string;
+  json?: boolean;
+}
 
-  if (wantsHelp(parsed)) {
-    console.log(`
-Usage: linear label update <id> [options]
-
-Update an existing issue label.
-
-Options:
-  --name <name>          New label name
-  --color <hex>          New label color hex
-  --description <text>   New label description
-  --json                 Output as JSON
-  -h, --help             Show this help
-`);
-    return;
-  }
-
-  const id = getPositional(parsed, 0);
-  if (!id) {
-    console.error("Error: Label ID is required.");
-    console.error("Usage: linear label update <id>");
-    process.exit(1);
-  }
-
+export async function updateLabel(options: UpdateLabelOptions): Promise<void> {
   const token = await requireToken();
-  const json = await useJson(parsed);
+  const json = await useJson(options.json);
 
   const input: Record<string, unknown> = {};
 
-  const name = getString(parsed, "name");
-  if (name) input.name = name;
-
-  const color = getString(parsed, "color");
-  if (color) input.color = color;
-
-  const description = getString(parsed, "description");
-  if (description) input.description = description;
+  if (options.name) input.name = options.name;
+  if (options.color) input.color = options.color;
+  if (options.description) input.description = options.description;
 
   if (Object.keys(input).length === 0) {
     console.error("Error: No update flags provided.");
@@ -266,7 +193,7 @@ Options:
         color: string;
       };
     };
-  }>(token, mutation, { id, input });
+  }>(token, mutation, { id: options.id, input });
 
   if (!data.issueLabelUpdate.success) {
     console.error("Error: Failed to update label.");
@@ -283,31 +210,14 @@ Options:
   console.log(`Updated label "${label.name}" (${label.color})`);
 }
 
-export async function deleteLabel(args: string[]): Promise<void> {
-  const parsed = parseArgs(args, LABEL_OPTIONS);
+export interface DeleteLabelOptions {
+  id: string;
+  json?: boolean;
+}
 
-  if (wantsHelp(parsed)) {
-    console.log(`
-Usage: linear label delete <id>
-
-Delete (archive) an issue label.
-
-Options:
-  --json         Output as JSON
-  -h, --help     Show this help
-`);
-    return;
-  }
-
-  const id = getPositional(parsed, 0);
-  if (!id) {
-    console.error("Error: Label ID is required.");
-    console.error("Usage: linear label delete <id>");
-    process.exit(1);
-  }
-
+export async function deleteLabel(options: DeleteLabelOptions): Promise<void> {
   const token = await requireToken();
-  const json = await useJson(parsed);
+  const json = await useJson(options.json);
 
   const mutation = `
     mutation IssueLabelArchive($id: String!) {
@@ -319,7 +229,7 @@ Options:
 
   const data = await graphql<{
     issueLabelArchive: { success: boolean };
-  }>(token, mutation, { id });
+  }>(token, mutation, { id: options.id });
 
   if (!data.issueLabelArchive.success) {
     console.error("Error: Failed to delete label.");
@@ -327,9 +237,9 @@ Options:
   }
 
   if (json) {
-    console.log(JSON.stringify({ id, deleted: true }, null, 2));
+    console.log(JSON.stringify({ id: options.id, deleted: true }, null, 2));
     return;
   }
 
-  console.log(`Deleted label ${id}`);
+  console.log(`Deleted label ${options.id}`);
 }

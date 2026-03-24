@@ -1,50 +1,22 @@
 import { graphql } from "../api.ts";
-import {
-  getNumber,
-  getPositional,
-  getString,
-  parseArgs,
-  wantsHelp,
-} from "../args.ts";
 import { printTable, requireToken, useJson } from "./shared.ts";
 
-const OPTIONS = {
-  team: { type: "string" as const },
-  limit: { type: "string" as const },
-  json: { type: "boolean" as const },
-};
+export interface SearchIssuesOptions {
+  term: string;
+  team?: string;
+  limit?: number;
+  json?: boolean;
+}
 
-export async function searchIssues(args: string[]): Promise<void> {
-  const parsed = parseArgs(args, OPTIONS);
-
-  if (wantsHelp(parsed)) {
-    console.log(`
-Usage: linear search issues <term> [flags]
-
-Search issues by term.
-
-Options:
-  --team <key>   Filter by team key
-  --limit <n>    Max results (default: 25)
-  --json         Output as JSON
-  -h, --help     Show this help
-`);
-    return;
-  }
-
-  const term = getPositional(parsed, 0);
-  if (!term) {
-    console.error("Error: Search term is required.");
-    process.exit(1);
-  }
-
+export async function searchIssues(
+  options: SearchIssuesOptions,
+): Promise<void> {
   const token = await requireToken();
-  const json = await useJson(parsed);
-  const teamKey = getString(parsed, "team");
-  const limit = getNumber(parsed, "limit") ?? 25;
+  const json = await useJson(options.json);
+  const limit = options.limit ?? 25;
 
-  const filter: Record<string, unknown> | undefined = teamKey
-    ? { team: { key: { eq: teamKey } } }
+  const filter: Record<string, unknown> | undefined = options.team
+    ? { team: { key: { eq: options.team } } }
     : undefined;
 
   const query = `
@@ -77,7 +49,7 @@ Options:
         priorityLabel: string;
       }>;
     };
-  }>(token, query, { term, first: limit, filter });
+  }>(token, query, { term: options.term, first: limit, filter });
 
   const issues = data.searchIssues.nodes;
 
@@ -103,32 +75,18 @@ Options:
   printTable(headers, rows);
 }
 
-export async function searchDocuments(args: string[]): Promise<void> {
-  const parsed = parseArgs(args, OPTIONS);
+export interface SearchDocumentsOptions {
+  term: string;
+  limit?: number;
+  json?: boolean;
+}
 
-  if (wantsHelp(parsed)) {
-    console.log(`
-Usage: linear search documents <term> [flags]
-
-Search documents by term.
-
-Options:
-  --limit <n>    Max results (default: 25)
-  --json         Output as JSON
-  -h, --help     Show this help
-`);
-    return;
-  }
-
-  const term = getPositional(parsed, 0);
-  if (!term) {
-    console.error("Error: Search term is required.");
-    process.exit(1);
-  }
-
+export async function searchDocuments(
+  options: SearchDocumentsOptions,
+): Promise<void> {
   const token = await requireToken();
-  const json = await useJson(parsed);
-  const limit = getNumber(parsed, "limit") ?? 25;
+  const json = await useJson(options.json);
+  const limit = options.limit ?? 25;
 
   const query = `
     query SearchDocuments($term: String!, $first: Int) {
@@ -154,7 +112,7 @@ Options:
         createdAt: string;
       }>;
     };
-  }>(token, query, { term, first: limit });
+  }>(token, query, { term: options.term, first: limit });
 
   const documents = data.searchDocuments.nodes;
 
@@ -179,32 +137,18 @@ Options:
   printTable(headers, rows);
 }
 
-export async function searchProjects(args: string[]): Promise<void> {
-  const parsed = parseArgs(args, OPTIONS);
+export interface SearchProjectsOptions {
+  term: string;
+  limit?: number;
+  json?: boolean;
+}
 
-  if (wantsHelp(parsed)) {
-    console.log(`
-Usage: linear search projects <term> [flags]
-
-Search projects by term.
-
-Options:
-  --limit <n>    Max results (default: 25)
-  --json         Output as JSON
-  -h, --help     Show this help
-`);
-    return;
-  }
-
-  const term = getPositional(parsed, 0);
-  if (!term) {
-    console.error("Error: Search term is required.");
-    process.exit(1);
-  }
-
+export async function searchProjects(
+  options: SearchProjectsOptions,
+): Promise<void> {
   const token = await requireToken();
-  const json = await useJson(parsed);
-  const limit = getNumber(parsed, "limit") ?? 25;
+  const json = await useJson(options.json);
+  const limit = options.limit ?? 25;
 
   const query = `
     query SearchProjects($term: String!, $first: Int) {
@@ -232,7 +176,7 @@ Options:
         teams: { nodes: Array<{ key: string }> };
       }>;
     };
-  }>(token, query, { term, first: limit });
+  }>(token, query, { term: options.term, first: limit });
 
   const projects = data.searchProjects.nodes;
 

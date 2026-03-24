@@ -1,7 +1,6 @@
+import Table from "cli-table3";
 import type { ResolvedAuth } from "../api.ts";
 import { graphql } from "../api.ts";
-import type { ParsedArgs } from "../args.ts";
-import { getBoolean } from "../args.ts";
 import { loadMergedConfig, resolveAuth } from "../config.ts";
 
 export type { ResolvedAuth };
@@ -215,8 +214,8 @@ export async function resolveDelegate(
   return user.id;
 }
 
-export async function useJson(parsed: ParsedArgs): Promise<boolean> {
-  if (getBoolean(parsed, "json")) return true;
+export async function useJson(jsonFlag?: boolean): Promise<boolean> {
+  if (jsonFlag) return true;
   const { config } = await loadMergedConfig({
     workspace: getWorkspaceContext(),
   });
@@ -238,12 +237,35 @@ export function truncate(str: string, len: number): string {
 }
 
 export function printTable(headers: string[], rows: string[][]): void {
-  const widths = headers.map((h, i) =>
-    Math.max(h.length, ...rows.map((r) => (r[i] ?? "").length)),
-  );
+  const table = new Table({
+    head: headers,
+    style: {
+      compact: true,
+      head: [],
+      border: [],
+    },
+    chars: {
+      top: "",
+      "top-mid": "",
+      "top-left": "",
+      "top-right": "",
+      bottom: "",
+      "bottom-mid": "",
+      "bottom-left": "",
+      "bottom-right": "",
+      left: "",
+      "left-mid": "",
+      mid: "",
+      "mid-mid": "",
+      right: "",
+      "right-mid": "",
+      middle: "  ",
+    },
+  });
 
-  console.log(headers.map((h, i) => pad(h, widths[i] ?? 0)).join("  "));
   for (const row of rows) {
-    console.log(row.map((cell, i) => pad(cell, widths[i] ?? 0)).join("  "));
+    table.push(row);
   }
+
+  console.log(table.toString());
 }

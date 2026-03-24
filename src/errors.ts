@@ -1,3 +1,5 @@
+import pc from "picocolors";
+
 export class CliError extends Error {
   readonly suggestion?: string;
 
@@ -26,9 +28,9 @@ export function toCliError(error: unknown): CliError {
 export function printCliError(error: unknown): void {
   const cliError = toCliError(error);
 
-  console.error(`Error: ${cliError.message}`);
+  console.error(pc.red(`Error: ${cliError.message}`));
 
   if (cliError.suggestion) {
-    console.error(`Hint: ${cliError.suggestion}`);
+    console.error(pc.yellow(`Hint: ${cliError.suggestion}`));
   }
 }

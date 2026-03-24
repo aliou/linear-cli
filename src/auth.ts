@@ -3,6 +3,7 @@
  * Handles token storage, validation, and auth status.
  */
 
+import * as p from "@clack/prompts";
 import { fetchOrganization, fetchViewer } from "./api.ts";
 import {
   checkConfigPermissions,
@@ -301,38 +302,30 @@ export async function readTokenFromStdin(): Promise<string | null> {
  * Prompt for token interactively.
  */
 export async function promptForToken(): Promise<string> {
-  process.stdout.write("Enter token: ");
-
-  return new Promise((resolve) => {
-    let input = "";
-    process.stdin.setEncoding("utf-8");
-    process.stdin.on("data", (chunk) => {
-      input += chunk;
-      if (input.includes("\n")) {
-        process.stdin.pause();
-        resolve(input.trim());
-      }
-    });
-    process.stdin.resume();
+  const value = await p.password({
+    message: "Enter token",
+    mask: "*",
   });
+
+  if (p.isCancel(value)) {
+    return "";
+  }
+
+  return String(value).trim();
 }
 
 export async function promptForTokenKind(): Promise<TokenKind> {
-  process.stdout.write("Token type [api/oauth]: ");
-
-  return new Promise((resolve) => {
-    let input = "";
-    process.stdin.setEncoding("utf-8");
-    process.stdin.on("data", (chunk) => {
-      input += chunk;
-      if (!input.includes("\n")) {
-        return;
-      }
-
-      process.stdin.pause();
-      const value = input.trim().toLowerCase();
-      resolve(value === "oauth" || value === "o" ? "oauth" : "api");
-    });
-    process.stdin.resume();
+  const value = await p.select({
+    message: "Token type",
+    options: [
+      { value: "api", label: "API token" },
+      { value: "oauth", label: "OAuth token" },
+    ],
   });
+
+  if (p.isCancel(value)) {
+    return "api";
+  }
+
+  return value === "oauth" ? "oauth" : "api";
 }

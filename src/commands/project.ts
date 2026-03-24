@@ -1,18 +1,5 @@
 import { graphql } from "../api.ts";
-import {
-  getNumber,
-  getPositional,
-  getString,
-  parseArgs,
-  wantsHelp,
-} from "../args.ts";
 import { printTable, requireToken, useJson } from "./shared.ts";
-
-const PROJECT_OPTIONS = {
-  limit: { type: "string" as const },
-  status: { type: "string" as const },
-  json: { type: "boolean" as const },
-};
 
 interface ProjectNode {
   id: string;
@@ -39,31 +26,21 @@ interface ProjectDetail extends ProjectNode {
   url: string;
 }
 
-export async function listProjects(args: string[]): Promise<void> {
-  const parsed = parseArgs(args, PROJECT_OPTIONS);
+export interface ListProjectsOptions {
+  limit?: number;
+  status?: string;
+  json?: boolean;
+}
 
-  if (wantsHelp(parsed)) {
-    console.log(`
-Usage: linear project list [options]
-
-List projects.
-
-Options:
-  --limit <n>      Number of projects to fetch (default: 50)
-  --status <s>     Filter by status (planned, started, paused, completed, canceled)
-  --json           Output as JSON
-  -h, --help       Show this help
-`);
-    return;
-  }
-
+export async function listProjects(
+  options: ListProjectsOptions,
+): Promise<void> {
   const token = await requireToken();
-  const limit = getNumber(parsed, "limit") ?? 50;
-  const status = getString(parsed, "status");
+  const limit = options.limit ?? 50;
 
   const filter: Record<string, unknown> = {};
-  if (status) {
-    filter.state = { eq: status };
+  if (options.status) {
+    filter.state = { eq: options.status };
   }
 
   const query = `
@@ -97,7 +74,7 @@ Options:
 
   const projects = data.projects.nodes;
 
-  if (await useJson(parsed)) {
+  if (await useJson(options.json)) {
     console.log(JSON.stringify(projects, null, 2));
     return;
   }
@@ -127,28 +104,12 @@ Options:
   printTable(headers, rows);
 }
 
-export async function getProject(args: string[]): Promise<void> {
-  const parsed = parseArgs(args, { json: { type: "boolean" as const } });
+export interface GetProjectOptions {
+  id: string;
+  json?: boolean;
+}
 
-  if (wantsHelp(parsed)) {
-    console.log(`
-Usage: linear project get <project-id>
-
-Get project details by UUID or slug.
-
-Options:
-  --json       Output as JSON
-  -h, --help   Show this help
-`);
-    return;
-  }
-
-  const projectId = getPositional(parsed, 0);
-  if (!projectId) {
-    console.error("Error: Project ID or slug is required.");
-    process.exit(1);
-  }
-
+export async function getProject(options: GetProjectOptions): Promise<void> {
   const token = await requireToken();
 
   const query = `
@@ -174,12 +135,12 @@ Options:
   `;
 
   const data = await graphql<{ project: ProjectDetail }>(token, query, {
-    id: projectId,
+    id: options.id,
   });
 
   const project = data.project;
 
-  if (await useJson(parsed)) {
+  if (await useJson(options.json)) {
     console.log(JSON.stringify(project, null, 2));
     return;
   }
