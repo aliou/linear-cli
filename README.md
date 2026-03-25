@@ -180,6 +180,15 @@ linear graphql 'query { viewer { id name email } }'
 linear graphql 'query Issue($id: String!) { issue(id: $id) { id title } }' \
   --variables '{"id":"ENG-123"}'
 
+# Read long values from files
+linear issue create --team ENG --title "Spec" --description-file ./issue.md
+linear comment create --issue ENG-123 --body-file ./comment.md
+linear document create --title "Runbook" --content-file ./runbook.md
+linear graphql --query-file ./query.graphql --variables-file ./variables.json
+
+# Use - to read from stdin
+cat ./comment.md | linear comment update cmt_123 --body-file -
+
 # Or pipe a query via stdin
 echo 'query { viewer { id name } }' | linear graphql
 ```

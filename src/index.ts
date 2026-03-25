@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { readFile } from "node:fs/promises";
 import { Command, InvalidArgumentError, Option } from "commander";
 import ora from "ora";
 import {
@@ -115,7 +116,7 @@ import {
 } from "./commands/user";
 import { getConfigPath, loadConfig, setDefaultWorkspace } from "./config";
 import { APP_NAME, VERSION } from "./constants";
-import { printCliError } from "./errors";
+import { CliError, printCliError } from "./errors";
 
 function parsePositiveInt(name: string): (value: string) => number {
   return (value: string): number => {
@@ -168,6 +169,59 @@ function detectCompletionShell(args: string[]): string | null {
     }
   }
   return null;
+}
+
+interface ResolveTextInputOptions {
+  value?: string;
+  file?: string;
+  valueFlag: string;
+  fileFlag: string;
+  required?: boolean;
+  stdin?: { consumed: boolean };
+}
+
+async function resolveTextInput(
+  options: ResolveTextInputOptions,
+): Promise<string | undefined> {
+  const { value, file, valueFlag, fileFlag, required = false, stdin } = options;
+
+  if (value !== undefined && file !== undefined) {
+    throw new CliError(
+      `Flags ${valueFlag} and ${fileFlag} are mutually exclusive.`,
+    );
+  }
+
+  if (file !== undefined) {
+    if (file === "-") {
+      if (stdin?.consumed) {
+        throw new CliError(
+          "Standard input was already consumed by another flag.",
+          {
+            suggestion: `Use a file path for either ${valueFlag} or ${fileFlag} instead of '-' when both are needed.`,
+          },
+        );
+      }
+      if (stdin) {
+        stdin.consumed = true;
+      }
+      return await Bun.stdin.text();
+    }
+
+    try {
+      return await readFile(file, "utf8");
+    } catch (error) {
+      throw new CliError(`Failed to read file: ${file}`, {
+        cause: error,
+        suggestion: "Check the file path and permissions.",
+      });
+    }
+  }
+
+  if (required && value === undefined) {
+    throw new CliError(`One of ${valueFlag} or ${fileFlag} is required.`);
+  }
+
+  return value;
 }
 
 async function run(): Promise<void> {
@@ -385,6 +439,7 @@ function registerIssue(program: Command): void {
     .requiredOption("--team <key>", "Team key")
     .requiredOption("--title <title>", "Issue title")
     .option("--description <text>", "Issue description")
+    .option("--description-file <file>", "Read issue description from file")
     .option("--priority <0-4>", "Issue priority", parsePriority)
     .option("--assignee <value>", "Assignee")
     .option("--delegate <value>", "Delegate/agent")
@@ -395,10 +450,17 @@ function registerIssue(program: Command): void {
     .option("--estimate <n>", "Estimate", parseNonNegativeInt("estimate"))
     .option("--json", "Output as JSON")
     .action(async (options) => {
+      const description = await resolveTextInput({
+        value: options.description,
+        file: options.descriptionFile,
+        valueFlag: "--description",
+        fileFlag: "--description-file",
+      });
+
       const opts: CreateIssueOptions = {
         team: options.team,
         title: options.title,
-        description: options.description,
+        description,
         priority: options.priority,
         assignee: options.assignee,
         delegate: options.delegate,
@@ -417,6 +479,7 @@ function registerIssue(program: Command): void {
     .argument("<identifier>", "Issue identifier or UUID")
     .option("--title <title>", "New title")
     .option("--description <text>", "New description")
+    .option("--description-file <file>", "Read new description from file")
     .option("--priority <0-4>", "New priority", parsePriority)
     .option("--state <id>", "New state ID")
     .option("--assignee <value>", "New assignee")
@@ -427,10 +490,17 @@ function registerIssue(program: Command): void {
     .option("--estimate <n>", "New estimate", parseNonNegativeInt("estimate"))
     .option("--json", "Output as JSON")
     .action(async (identifier: string, options) => {
+      const description = await resolveTextInput({
+        value: options.description,
+        file: options.descriptionFile,
+        valueFlag: "--description",
+        fileFlag: "--description-file",
+      });
+
       const opts: UpdateIssueOptions = {
         identifier,
         title: options.title,
-        description: options.description,
+        description,
         priority: options.priority,
         state: options.state,
         assignee: options.assignee,
@@ -577,12 +647,21 @@ function registerComment(program: Command): void {
   strict(addWorkspaceOption(comment.command("create")))
     .description("Create comment")
     .requiredOption("--issue <identifier>", "Issue identifier")
-    .requiredOption("--body <text>", "Comment body")
+    .option("--body <text>", "Comment body")
+    .option("--body-file <file>", "Read comment body from file")
     .option("--json", "Output as JSON")
     .action(async (options) => {
+      const body = await resolveTextInput({
+        value: options.body,
+        file: options.bodyFile,
+        valueFlag: "--body",
+        fileFlag: "--body-file",
+        required: true,
+      });
+
       const opts: CreateCommentOptions = {
         issue: options.issue,
-        body: options.body,
+        body: body ?? "",
         json: options.json,
       };
       await createComment(opts);
@@ -591,12 +670,21 @@ function registerComment(program: Command): void {
   strict(addWorkspaceOption(comment.command("update")))
     .description("Update comment")
     .argument("<id>")
-    .requiredOption("--body <text>", "Updated comment body")
+    .option("--body <text>", "Updated comment body")
+    .option("--body-file <file>", "Read updated comment body from file")
     .option("--json", "Output as JSON")
     .action(async (id: string, options) => {
+      const body = await resolveTextInput({
+        value: options.body,
+        file: options.bodyFile,
+        valueFlag: "--body",
+        fileFlag: "--body-file",
+        required: true,
+      });
+
       const opts: UpdateCommentOptions = {
         id,
-        body: options.body,
+        body: body ?? "",
         json: options.json,
       };
       await updateComment(opts);
@@ -649,13 +737,22 @@ function registerDocument(program: Command): void {
   strict(addWorkspaceOption(document.command("create")))
     .description("Create document")
     .requiredOption("--title <title>", "Document title")
-    .requiredOption("--content <markdown>", "Document content markdown")
+    .option("--content <markdown>", "Document content markdown")
+    .option("--content-file <file>", "Read document content from file")
     .option("--project <id>", "Project ID")
     .option("--json", "Output as JSON")
     .action(async (options) => {
+      const content = await resolveTextInput({
+        value: options.content,
+        file: options.contentFile,
+        valueFlag: "--content",
+        fileFlag: "--content-file",
+        required: true,
+      });
+
       const opts: CreateDocumentOptions = {
         title: options.title,
-        content: options.content,
+        content: content ?? "",
         project: options.project,
         json: options.json,
       };
@@ -667,12 +764,20 @@ function registerDocument(program: Command): void {
     .argument("<id>")
     .option("--title <title>", "New title")
     .option("--content <content>", "New content")
+    .option("--content-file <file>", "Read new content from file")
     .option("--json", "Output as JSON")
     .action(async (id: string, options) => {
+      const content = await resolveTextInput({
+        value: options.content,
+        file: options.contentFile,
+        valueFlag: "--content",
+        fileFlag: "--content-file",
+      });
+
       const opts: UpdateDocumentOptions = {
         id,
         title: options.title,
-        content: options.content,
+        content,
         json: options.json,
       };
       await updateDocument(opts);
@@ -716,13 +821,21 @@ function registerLabel(program: Command): void {
     .requiredOption("--color <hex>", "Label color")
     .option("--team <key>", "Team key")
     .option("--description <text>", "Description")
+    .option("--description-file <file>", "Read description from file")
     .option("--json", "Output as JSON")
     .action(async (options) => {
+      const description = await resolveTextInput({
+        value: options.description,
+        file: options.descriptionFile,
+        valueFlag: "--description",
+        fileFlag: "--description-file",
+      });
+
       const opts: CreateLabelOptions = {
         name: options.name,
         color: options.color,
         team: options.team,
-        description: options.description,
+        description,
         json: options.json,
       };
       await createLabel(opts);
@@ -734,13 +847,21 @@ function registerLabel(program: Command): void {
     .option("--name <name>", "New name")
     .option("--color <hex>", "New color")
     .option("--description <text>", "New description")
+    .option("--description-file <file>", "Read new description from file")
     .option("--json", "Output as JSON")
     .action(async (id: string, options) => {
+      const description = await resolveTextInput({
+        value: options.description,
+        file: options.descriptionFile,
+        valueFlag: "--description",
+        fileFlag: "--description-file",
+      });
+
       const opts: UpdateLabelOptions = {
         id,
         name: options.name,
         color: options.color,
-        description: options.description,
+        description,
         json: options.json,
       };
       await updateLabel(opts);
@@ -795,13 +916,21 @@ function registerMilestone(program: Command): void {
     .requiredOption("--project <id>", "Project ID")
     .requiredOption("--name <name>", "Milestone name")
     .option("--description <text>", "Description")
+    .option("--description-file <file>", "Read description from file")
     .option("--targetDate <date>", "Target date (YYYY-MM-DD)")
     .option("--json", "Output as JSON")
     .action(async (options) => {
+      const description = await resolveTextInput({
+        value: options.description,
+        file: options.descriptionFile,
+        valueFlag: "--description",
+        fileFlag: "--description-file",
+      });
+
       const opts: CreateMilestoneOptions = {
         project: options.project,
         name: options.name,
-        description: options.description,
+        description,
         targetDate: options.targetDate,
         json: options.json,
       };
@@ -813,13 +942,21 @@ function registerMilestone(program: Command): void {
     .argument("<id>")
     .option("--name <name>", "New name")
     .option("--description <text>", "New description")
+    .option("--description-file <file>", "Read new description from file")
     .option("--targetDate <date>", "New target date")
     .option("--json", "Output as JSON")
     .action(async (id: string, options) => {
+      const description = await resolveTextInput({
+        value: options.description,
+        file: options.descriptionFile,
+        valueFlag: "--description",
+        fileFlag: "--description-file",
+      });
+
       const opts: UpdateMilestoneOptions = {
         id,
         name: options.name,
-        description: options.description,
+        description,
         targetDate: options.targetDate,
         json: options.json,
       };
@@ -979,15 +1116,33 @@ function registerGraphql(program: Command): void {
   strict(addWorkspaceOption(program.command("graphql")))
     .description("Run arbitrary GraphQL")
     .argument("[query...]", "GraphQL query/mutation string")
+    .option("--query-file <file>", "Read GraphQL query/mutation from file")
     .option("--variables <json>", "Variables object as JSON")
+    .option("--variables-file <file>", "Read variables JSON from file")
     .action(async (queryParts: string[] | undefined, options) => {
-      const query =
+      const stdin = { consumed: false };
+      const queryFromArgs =
         Array.isArray(queryParts) && queryParts.length > 0
           ? queryParts.join(" ")
           : undefined;
+      const query = await resolveTextInput({
+        value: queryFromArgs,
+        file: options.queryFile,
+        valueFlag: "query argument",
+        fileFlag: "--query-file",
+        stdin,
+      });
+      const variables = await resolveTextInput({
+        value: options.variables,
+        file: options.variablesFile,
+        valueFlag: "--variables",
+        fileFlag: "--variables-file",
+        stdin,
+      });
+
       const opts: RunGraphqlOptions = {
         query,
-        variables: options.variables,
+        variables,
       };
       await runGraphql(opts);
     });
