@@ -41,42 +41,30 @@ bun run src/index.ts --help
 
 ## Authentication
 
-Get a personal API token from **Linear Settings > API > Personal API keys**, or use an OAuth token from a Linear app.
+Get a personal API token from **Linear Settings > API > Personal API keys**.
 
 ```sh
 # Interactive login
 linear auth login
 
 # With token directly
-linear auth login --type api --token <token>
-linear auth login --type oauth --token <token>
+linear auth login --token <token>
 
 # Save under a specific workspace profile name
-linear auth login --type api --token <token> --workspace personal
-
-# With OAuth refresh token and expiry (optional, enables automatic token refresh)
-linear auth login --type oauth --token <token> \
-  --refresh-token <refresh-token> \
-  --expires-at <iso-timestamp>
+linear auth login --token <token> --workspace personal
 
 # Via API token environment variable
 export LINEAR_API_TOKEN=<token>
-
-# Via OAuth token environment variable
-export LINEAR_OAUTH_TOKEN=<token>
 
 # Workspace selection for config-stored credentials
 export LINEAR_WORKSPACE=acme
 linear --workspace personal issue list
 
 # Via pipe
-echo <token> | linear auth login --type api
-echo <token> | linear auth login --type oauth
+echo <token> | linear auth login
 ```
 
-Interactive `linear auth login` asks whether the token is an API token or an OAuth token before validating and saving it.
-
-When using `--token` or stdin, pass `--type api` or `--type oauth`.
+Interactive `linear auth login` prompts for your API token and validates it before saving.
 
 You do not need a special `-` argument for stdin. Piped input is detected automatically.
 
@@ -103,13 +91,7 @@ linear auth use <name>
       "outputFormat": "table"
     },
     "personal": {
-      "oauth": {
-        "access": "...",
-        "refresh": "...",
-        "expiresAt": "2026-01-01T00:00:00.000Z",
-        "clientId": "...",
-        "clientSecret": "..."
-      },
+      "apiToken": "...",
       "orgName": "Personal Workspace"
     }
   },
@@ -120,19 +102,8 @@ linear auth use <name>
 
 Credentials are stored per workspace profile under `workspaces.<name>`. The CLI auto-detects workspace profile name from Linear organization `urlKey` during login. Use `--workspace` to override the profile name.
 
-Legacy flat config fields are still read for backward compatibility. On first run after upgrading, the CLI now automatically migrates legacy config to workspace format and creates a backup named `config.<previous-version>.json` next to `config.json`.
-
 The CLI writes and updates `$schema` automatically, pointing to the schema file for the CLI version used to write the config.
 
-### Automatic OAuth token refresh
-
-When a config-stored OAuth token has an `oauth.refresh` value, the CLI will automatically refresh it on a 401 response and retry the request once.
-
-Refresh credentials are resolved in this order:
-1. `LINEAR_CLIENT_ID` + `LINEAR_CLIENT_SECRET` from the environment
-2. `oauth.clientId` + `oauth.clientSecret` from `~/.config/linear-cli/config.json`
-
-> Note: storing `oauth.clientSecret` in the config file is convenient, but it is still a secret. The CLI stores the config with `0600` permissions.
 
 ## Usage
 
@@ -252,13 +223,7 @@ Stored at `~/.config/linear-cli/config.json`:
       "orgName": "Acme Inc"
     },
     "personal": {
-      "oauth": {
-        "access": "...",
-        "refresh": "...",
-        "expiresAt": "2026-01-01T00:00:00.000Z",
-        "clientId": "...",
-        "clientSecret": "..."
-      },
+      "apiToken": "...",
       "orgName": "Personal Workspace"
     }
   },

@@ -5,7 +5,6 @@
 import type { ResolvedAuth } from "./config.ts";
 import { LINEAR_API_URL } from "./constants.ts";
 import { CliError } from "./errors.ts";
-import { refreshOAuthToken } from "./oauth.ts";
 
 export type { ResolvedAuth };
 
@@ -47,38 +46,14 @@ function truncateDetail(value: string, maxLength = 200): string {
 
 /**
  * Execute a GraphQL request against the Linear API and return the raw GraphQL response.
- *
- * When passed a ResolvedAuth from config with a refreshToken, a 401 response
- * will trigger a single token-refresh attempt followed by a retry.
- * Tokens from environment variables are never refreshed automatically.
  */
 export async function graphqlRequest<T = unknown>(
   auth: string | ResolvedAuth,
   query: string,
   variables?: Record<string, unknown>,
 ): Promise<GraphQLResponse<T>> {
-  let currentHeader = authHeader(auth);
-  let response = await doGraphQL(currentHeader, query, variables);
-
-  if (
-    response.status === 401 &&
-    typeof auth !== "string" &&
-    auth.source === "config" &&
-    auth.kind === "oauth" &&
-    auth.refreshToken
-  ) {
-    if (!auth.workspace) {
-      throw new CliError(
-        "Cannot refresh OAuth token without a workspace context.",
-        {
-          suggestion:
-            "Run 'linear auth login' to migrate credentials to a workspace profile.",
-        },
-      );
-    }
-    currentHeader = await refreshOAuthToken(auth.refreshToken, auth.workspace);
-    response = await doGraphQL(currentHeader, query, variables);
-  }
+  const currentHeader = authHeader(auth);
+  const response = await doGraphQL(currentHeader, query, variables);
 
   if (!response.ok) {
     if (response.status === 401) {

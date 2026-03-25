@@ -48,7 +48,11 @@ describe("parseVariables", () => {
 
 describe("runGraphql", () => {
   test("sends parsed variables to the GraphQL API and prints the response", async () => {
-    await saveConfig({ apiToken: "test-api-token", outputFormat: "table" });
+    await saveConfig({
+      defaultWorkspace: "default",
+      workspaces: { default: { apiToken: "test-api-token" } },
+      outputFormat: "table",
+    });
 
     let requestBody:
       | { query?: string; variables?: Record<string, unknown> }

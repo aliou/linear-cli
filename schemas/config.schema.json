@@ -22,74 +22,25 @@
         "additionalProperties": false,
         "properties": {
           "apiToken": {
-            "type": "string"
-          },
-          "oauth": {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "access": {
-                "type": "string"
-              },
-              "refresh": {
-                "type": "string"
-              },
-              "expiresAt": {
-                "type": "string",
-                "format": "date-time"
-              },
-              "clientId": {
-                "type": "string"
-              },
-              "clientSecret": {
-                "type": "string"
-              }
-            }
+            "type": "string",
+            "description": "Linear personal API key for this workspace."
           },
           "orgName": {
-            "type": "string"
+            "type": "string",
+            "description": "Display name of the Linear organization."
           },
           "defaultTeamKey": {
-            "type": "string"
+            "type": "string",
+            "description": "Default Linear team key for this workspace, e.g. ENG."
           },
           "outputFormat": {
             "type": "string",
             "enum": [
               "json",
               "table"
-            ]
+            ],
+            "description": "Default output format for this workspace."
           }
-        }
-      }
-    },
-    "apiToken": {
-      "type": "string",
-      "description": "Linear personal API key."
-    },
-    "oauth": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "access": {
-          "type": "string",
-          "description": "OAuth access token."
-        },
-        "refresh": {
-          "type": "string",
-          "description": "OAuth refresh token."
-        },
-        "expiresAt": {
-          "type": "string",
-          "format": "date-time",
-          "description": "ISO timestamp for access token expiry."
-        },
-        "clientId": {
-          "type": "string",
-          "description": "OAuth client ID used for refresh."
-        },
-        "clientSecret": {
-          "type": "string",
-          "description": "OAuth client secret used for refresh."
         }
       }
     },

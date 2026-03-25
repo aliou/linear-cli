@@ -6,7 +6,6 @@ import {
   login,
   logout,
   promptForToken,
-  promptForTokenKind,
   readTokenFromStdin,
 } from "./auth";
 import { printCompletion } from "./cli";
@@ -114,12 +113,7 @@ import {
   type MeOptions,
   me,
 } from "./commands/user";
-import {
-  getConfigPath,
-  loadConfig,
-  migrateConfigOnStartup,
-  setDefaultWorkspace,
-} from "./config";
+import { getConfigPath, loadConfig, setDefaultWorkspace } from "./config";
 import { APP_NAME, VERSION } from "./constants";
 import { printCliError } from "./errors";
 
@@ -177,8 +171,6 @@ function detectCompletionShell(args: string[]): string | null {
 }
 
 async function run(): Promise<void> {
-  await migrateConfigOnStartup();
-
   const rawArgs = process.argv.slice(2);
   const completionShell = detectCompletionShell(rawArgs);
   if (completionShell) {
@@ -226,33 +218,19 @@ function registerAuth(program: Command): void {
   );
 
   strict(addWorkspaceOption(auth.command("login")))
-    .description("Authenticate with API token or OAuth token")
-    .addOption(
-      new Option("--type <type>", "Token type").choices(["api", "oauth"]),
-    )
+    .description("Authenticate with API token")
     .option("--token <token>", "Token value")
-    .option("--refresh-token <token>", "OAuth refresh token")
-    .option("--expires-at <iso>", "Access token expiry as ISO timestamp")
     .action(async (options) => {
       const workspace = options.workspace ?? getWorkspaceContext();
       let token: string | undefined = options.token;
 
-      if (token && !options.type) {
-        throw new Error("--type <api|oauth> is required with --token");
-      }
-
       if (!token) {
-        if (!process.stdin.isTTY && !options.type) {
-          throw new Error(
-            "--type <api|oauth> is required when reading token from stdin",
-          );
-        }
         token = (await readTokenFromStdin()) ?? undefined;
       }
 
-      const kind =
-        (options.type as "api" | "oauth" | undefined) ??
-        (await promptForTokenKind());
+      if (!token && !process.stdin.isTTY) {
+        throw new Error("No token provided");
+      }
 
       if (!token) {
         token = await promptForToken();
@@ -267,16 +245,7 @@ function registerAuth(program: Command): void {
         isSilent: !process.stderr.isTTY,
       }).start();
 
-      const loginOptions =
-        kind === "oauth"
-          ? {
-              refreshToken: options.refreshToken as string | undefined,
-              expiresAt: options.expiresAt as string | undefined,
-              workspace,
-            }
-          : { workspace };
-
-      const result = await login(token, kind, loginOptions);
+      const result = await login(token, { workspace });
 
       if (!result.success) {
         spinner.fail("Login failed");
@@ -353,11 +322,7 @@ function registerAuth(program: Command): void {
       }
 
       const rows = entries.map(([name, profile]) => {
-        const type = profile.accessToken
-          ? "oauth"
-          : profile.apiToken
-            ? "api"
-            : "-";
+        const type = profile.apiToken ? "api" : "-";
         const marker = config.defaultWorkspace === name ? "*" : "";
         return [name, profile.orgName ?? "-", type, marker];
       });

@@ -13,9 +13,6 @@ import {
   saveConfig,
 } from "./config.ts";
 import { CliError } from "./errors.ts";
-import { refreshOAuthToken } from "./oauth.ts";
-
-export { refreshOAuthToken };
 
 export interface AuthStatus {
   authenticated: boolean;
@@ -36,24 +33,16 @@ export interface LoginResult {
   error?: string;
 }
 
-export type TokenKind = "api" | "oauth";
-
-function formatTokenForApi(token: string, kind: TokenKind): string {
-  return kind === "oauth" ? `Bearer ${token}` : token;
-}
-
 /**
  * Perform login: validate token and store in config.
- * For OAuth logins, optionally persist refreshToken and accessTokenExpiresAt.
  */
 export async function login(
   token: string,
-  kind: TokenKind,
-  options?: { refreshToken?: string; expiresAt?: string; workspace?: string },
+  options?: { workspace?: string },
 ): Promise<LoginResult> {
   try {
     const trimmedToken = token.trim();
-    const authHeader = formatTokenForApi(trimmedToken, kind);
+    const authHeader = trimmedToken;
 
     const viewer = await fetchViewer(authHeader);
 
@@ -102,52 +91,17 @@ export async function login(
     const workspaces = { ...(config.workspaces ?? {}) };
     const currentProfile = workspaces[workspace] ?? {};
     const hadWorkspaces = Object.keys(workspaces).length > 0;
-    const isImplicitLegacyDefault =
-      config.defaultWorkspace === "default" &&
-      workspace !== "default" &&
-      Object.keys(config.workspaces ?? {}).length === 1 &&
-      (config.apiToken !== undefined ||
-        config.accessToken !== undefined ||
-        config.refreshToken !== undefined);
 
-    if (kind === "oauth") {
-      const { apiToken: _unusedApiToken, ...restProfile } = currentProfile;
-      workspaces[workspace] = {
-        ...restProfile,
-        orgName: organization?.name ?? currentProfile.orgName,
-        accessToken: trimmedToken,
-        ...(options?.refreshToken !== undefined
-          ? { refreshToken: options.refreshToken }
-          : {}),
-        ...(options?.expiresAt !== undefined
-          ? { accessTokenExpiresAt: options.expiresAt }
-          : {}),
-      };
-    } else {
-      const {
-        accessToken: _unusedAccessToken,
-        refreshToken: _unusedRefreshToken,
-        accessTokenExpiresAt: _unusedExpiresAt,
-        ...restProfile
-      } = currentProfile;
-      workspaces[workspace] = {
-        ...restProfile,
-        orgName: organization?.name ?? currentProfile.orgName,
-        apiToken: trimmedToken,
-      };
-    }
-
-    if (isImplicitLegacyDefault) {
-      delete workspaces.default;
-    }
+    workspaces[workspace] = {
+      ...currentProfile,
+      orgName: organization?.name ?? currentProfile.orgName,
+      apiToken: trimmedToken,
+    };
 
     await saveConfig({
       ...config,
       workspaces,
-      defaultWorkspace:
-        !hadWorkspaces || isImplicitLegacyDefault
-          ? workspace
-          : config.defaultWorkspace,
+      defaultWorkspace: !hadWorkspaces ? workspace : config.defaultWorkspace,
     });
 
     return {
@@ -166,7 +120,7 @@ export async function login(
 }
 
 /**
- * Perform logout: remove token and related OAuth fields from config.
+ * Perform logout: remove workspace from config.
  */
 export async function logout(workspace?: string): Promise<void> {
   const config = await loadConfig();
@@ -222,12 +176,7 @@ export async function logout(workspace?: string): Promise<void> {
     return;
   }
 
-  // Legacy fallback
-  delete config.apiToken;
-  delete config.accessToken;
-  delete config.refreshToken;
-  delete config.accessTokenExpiresAt;
-  delete config.defaultWorkspace;
+  // No workspace to remove; re-serialize config to drop ignored legacy fields.
   await saveConfig(config);
 }
 
@@ -312,20 +261,4 @@ export async function promptForToken(): Promise<string> {
   }
 
   return String(value).trim();
-}
-
-export async function promptForTokenKind(): Promise<TokenKind> {
-  const value = await p.select({
-    message: "Token type",
-    options: [
-      { value: "api", label: "API token" },
-      { value: "oauth", label: "OAuth token" },
-    ],
-  });
-
-  if (p.isCancel(value)) {
-    return "api";
-  }
-
-  return value === "oauth" ? "oauth" : "api";
 }
