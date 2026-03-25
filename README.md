@@ -200,20 +200,23 @@ echo 'query { viewer { id name } }' | linear graphql
 -v, --version             Show version
 -w, --workspace <name>    Use a specific workspace profile
 --json                    Output as JSON (available on all commands)
---completion              Generate shell completion (bash, zsh, fish)
+complete <shell>          Generate shell completion (bash, zsh, fish, powershell)
 ```
 
 ## Shell completion
 
 ```sh
 # Bash
-source <(linear --completion bash)
+source <(linear complete bash)
 
 # Zsh
-source <(linear --completion zsh)
+source <(linear complete zsh)
 
 # Fish
-linear --completion fish | source
+linear complete fish | source
+
+# PowerShell
+linear complete powershell | Out-String | Invoke-Expression
 ```
 
 ## Configuration
