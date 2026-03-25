@@ -111,10 +111,14 @@ jobs:
           sed -i "s|hash = \"sha256-.*\"; # linux-arm64|hash = \"${LINUX_ARM_HASH}\"; # linux-arm64|" flake.nix
           sed -i "s|hash = \"sha256-.*\"; # linux-x64|hash = \"${LINUX_X64_HASH}\"; # linux-x64|" flake.nix
 
-          # Commit hash update
-          git add flake.nix
-          git commit -m "chore: update binary hashes for ${TAG}"
-          git push origin main
+          # Commit hash update only if flake.nix changed
+          if git diff --quiet -- flake.nix; then
+            echo "No flake.nix hash changes to commit"
+          else
+            git add flake.nix
+            git commit -m "chore: update binary hashes for ${TAG}"
+            git push origin main
+          fi
 
           # Create tag on the new commit and release
           git tag -a "${TAG}" -m "Release ${TAG}"
