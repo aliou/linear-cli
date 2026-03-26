@@ -1,4 +1,6 @@
 import { readFile } from "node:fs/promises";
+import { stdin, stdout } from "node:process";
+import { createInterface } from "node:readline/promises";
 import { type Command, InvalidArgumentError } from "commander";
 import { CliError } from "../errors";
 
@@ -41,6 +43,59 @@ export function addWorkspaceOption(command: Command): Command {
   );
 }
 
+export function addDangerOptions(command: Command): Command {
+  return command
+    .option("--dry-run", "Preview action without applying changes")
+    .option("-y, --yes", "Skip confirmation prompt");
+}
+
+export async function ensureConfirmed(options: {
+  yes?: boolean;
+  prompt: string;
+  invocation: string;
+}): Promise<void> {
+  if (options.yes) return;
+
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    throw new CliError("Confirmation required in non-interactive mode.", {
+      suggestion: `Re-run with --yes. Example: ${options.invocation} --yes`,
+    });
+  }
+
+  const rl = createInterface({ input: stdin, output: stdout });
+  const answer = (await rl.question(`${options.prompt} [y/N] `)).trim();
+  rl.close();
+
+  if (!["y", "yes"].includes(answer.toLowerCase())) {
+    throw new CliError("Aborted.");
+  }
+}
+
+export function printDryRun(payload: Record<string, unknown>): void {
+  console.log(JSON.stringify({ dryRun: true, ...payload }, null, 2));
+}
+
+export async function guardDangerousAction(options: {
+  yes?: boolean;
+  dryRun?: boolean;
+  action: string;
+  target: string;
+  invocation: string;
+}): Promise<boolean> {
+  if (options.dryRun) {
+    printDryRun({ action: options.action, target: options.target });
+    return false;
+  }
+
+  await ensureConfirmed({
+    yes: options.yes,
+    prompt: `${options.action} ${options.target}?`,
+    invocation: options.invocation,
+  });
+
+  return true;
+}
+
 export interface ResolveTextInputOptions {
   value?: string;
   file?: string;
@@ -48,6 +103,14 @@ export interface ResolveTextInputOptions {
   fileFlag: string;
   required?: boolean;
   stdin?: { consumed: boolean };
+}
+
+export function addCommandExamples(
+  command: Command,
+  examples: string[],
+): Command {
+  const lines = examples.map((example) => `  ${example}`).join("\n");
+  return command.addHelpText("after", `\nExamples:\n${lines}`);
 }
 
 export async function resolveTextInput(

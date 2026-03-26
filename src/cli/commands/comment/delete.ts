@@ -3,18 +3,29 @@ import {
   type DeleteCommentOptions,
   deleteComment,
 } from "../../../commands/comment";
-import { addWorkspaceOption, strict } from "../../helpers";
+import {
+  addDangerOptions,
+  addWorkspaceOption,
+  guardDangerousAction,
+  strict,
+} from "../../helpers";
 
 export function registerCommentDelete(parent: Command): void {
-  strict(addWorkspaceOption(parent.command("delete")))
+  strict(addDangerOptions(addWorkspaceOption(parent.command("delete"))))
     .description("Delete comment")
     .argument("<id>")
     .option("--json", "Output as JSON")
     .action(async (id: string, options) => {
-      const opts: DeleteCommentOptions = {
-        id,
-        json: options.json,
-      };
+      const shouldRun = await guardDangerousAction({
+        yes: options.yes,
+        dryRun: options.dryRun,
+        action: "Delete comment",
+        target: id,
+        invocation: `linear comment delete ${id}`,
+      });
+      if (!shouldRun) return;
+
+      const opts: DeleteCommentOptions = { id, json: options.json };
       await deleteComment(opts);
     });
 }

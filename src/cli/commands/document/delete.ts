@@ -3,18 +3,29 @@ import {
   type DeleteDocumentOptions,
   deleteDocument,
 } from "../../../commands/document";
-import { addWorkspaceOption, strict } from "../../helpers";
+import {
+  addDangerOptions,
+  addWorkspaceOption,
+  guardDangerousAction,
+  strict,
+} from "../../helpers";
 
 export function registerDocumentDelete(parent: Command): void {
-  strict(addWorkspaceOption(parent.command("delete")))
+  strict(addDangerOptions(addWorkspaceOption(parent.command("delete"))))
     .description("Delete document")
     .argument("<id>")
     .option("--json", "Output as JSON")
     .action(async (id: string, options) => {
-      const opts: DeleteDocumentOptions = {
-        id,
-        json: options.json,
-      };
+      const shouldRun = await guardDangerousAction({
+        yes: options.yes,
+        dryRun: options.dryRun,
+        action: "Delete document",
+        target: id,
+        invocation: `linear document delete ${id}`,
+      });
+      if (!shouldRun) return;
+
+      const opts: DeleteDocumentOptions = { id, json: options.json };
       await deleteDocument(opts);
     });
 }

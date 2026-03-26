@@ -3,6 +3,7 @@ import ora from "ora";
 import { login, promptForToken, readTokenFromStdin } from "../../../auth";
 import { getWorkspaceContext } from "../../../commands/shared";
 import { getConfigPath } from "../../../config";
+import { CliError } from "../../../errors";
 import { addWorkspaceOption, strict } from "../../helpers";
 
 export function registerAuthLogin(parent: Command): void {
@@ -18,7 +19,10 @@ export function registerAuthLogin(parent: Command): void {
       }
 
       if (!token && !process.stdin.isTTY) {
-        throw new Error("No token provided");
+        throw new CliError("No token provided.", {
+          suggestion:
+            "Use --token <token> or pipe token via stdin. Example: echo $LINEAR_API_TOKEN | linear auth login",
+        });
       }
 
       if (!token) {
@@ -26,7 +30,10 @@ export function registerAuthLogin(parent: Command): void {
       }
 
       if (!token) {
-        throw new Error("No token provided");
+        throw new CliError("No token provided.", {
+          suggestion:
+            "Use --token <token> or run interactively and paste token when prompted.",
+        });
       }
 
       const spinner = ora({

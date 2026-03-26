@@ -5,6 +5,24 @@ import { APP_NAME, VERSION } from "../constants";
 import { strict } from "./helpers";
 import { registerAllCommands } from "./registry";
 
+function addAutoExamples(command: Command, lineage: string[] = []): void {
+  const path = [...lineage, command.name()].filter(Boolean);
+  const children = command.commands.filter((child) => child.name() !== "help");
+
+  if (children.length === 0 && path.length > 1) {
+    const args = command.registeredArguments
+      .map((arg) => (arg.required ? `<${arg.name()}>` : `[${arg.name()}]`))
+      .join(" ");
+    const base = [APP_NAME, ...path.slice(1), args].filter(Boolean).join(" ");
+    command.addHelpText("after", `\nExamples:\n  ${base}\n  ${base} --json`);
+    return;
+  }
+
+  for (const child of children) {
+    addAutoExamples(child, path);
+  }
+}
+
 export function createProgram(): Command {
   const program = strict(new Command());
   program
@@ -24,6 +42,7 @@ export function createProgram(): Command {
 
   registerAllCommands(program);
   tab(program);
+  addAutoExamples(program);
 
   return program;
 }
