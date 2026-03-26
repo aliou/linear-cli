@@ -1,6 +1,7 @@
 import type { Command } from "commander";
 import { registerAuth } from "./commands/auth/index";
 import { registerComment } from "./commands/comment/index";
+import { registerConfig } from "./commands/config/index";
 import { registerCycle } from "./commands/cycle/index";
 import { registerDocument } from "./commands/document/index";
 import { registerGraphql } from "./commands/graphql/index";
@@ -16,6 +17,7 @@ import { registerUser } from "./commands/user/index";
 
 export function registerAllCommands(program: Command): void {
   registerAuth(program);
+  registerConfig(program);
   registerIssue(program);
   registerTeam(program);
   registerProject(program);

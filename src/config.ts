@@ -63,7 +63,7 @@ const DEFAULT_CONFIG: Config = {
   outputFormat: "table",
 };
 
-const DEFAULT_LOCAL_CONFIG_PATHS = [
+export const DEFAULT_LOCAL_CONFIG_PATHS = [
   ".agents/linear.json",
   ".linear.json",
   ".linear/config.json",
@@ -511,6 +511,37 @@ export async function loadLocalConfig(
  * Merge order:
  *   global defaults < workspace profile defaults < local overrides
  */
+export function resolveWorkspaceFromGlobalConfig(
+  config: Config,
+  context?: { workspace?: string },
+): string | undefined {
+  return resolveWorkspaceName(config, undefined, context);
+}
+
+export async function loadLocalConfigFromPath(
+  filePath: string,
+): Promise<LocalConfig | undefined> {
+  try {
+    const file = Bun.file(filePath);
+    if (!(await file.exists())) {
+      return undefined;
+    }
+    const content = await file.text();
+    const data = JSON.parse(content);
+    return validateLocalConfig(data);
+  } catch {
+    return undefined;
+  }
+}
+
+export async function saveLocalConfigToPath(
+  filePath: string,
+  local: LocalConfig,
+): Promise<void> {
+  const content = `${JSON.stringify(local, null, 2)}\n`;
+  await Bun.write(filePath, content);
+}
+
 export async function loadMergedConfig(context?: {
   workspace?: string;
 }): Promise<{

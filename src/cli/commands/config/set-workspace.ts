@@ -1,11 +1,10 @@
 import type { Command } from "commander";
-import { setLocalWorkspace } from "../../../commands/config";
-import { setDefaultWorkspace } from "../../../config";
+import { setLocalWorkspace, setWorkspace } from "../../../commands/config";
 import { strict } from "../../helpers";
 
-export function registerAuthUse(parent: Command): void {
-  strict(parent.command("use"))
-    .description("Set default workspace profile")
+export function registerConfigWorkspace(parent: Command): void {
+  strict(parent.command("workspace"))
+    .description("Set default workspace")
     .argument("<name>", "Workspace profile name")
     .option("--local", "Set local workspace instead of global default")
     .action(async (name: string, options: { local?: boolean }) => {
@@ -17,7 +16,7 @@ export function registerAuthUse(parent: Command): void {
         return;
       }
 
-      await setDefaultWorkspace(name);
+      await setWorkspace(name);
       console.log(`Default workspace set to "${name}".`);
     });
 }

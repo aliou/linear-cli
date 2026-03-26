@@ -75,6 +75,8 @@ List and switch workspace profiles:
 ```sh
 linear auth list
 linear auth use <name>
+# Set workspace only for current project
+linear auth use <name> --local
 ```
 
 ### Config format
@@ -172,6 +174,7 @@ linear issue list --json
 # List and switch workspace profiles
 linear auth list
 linear auth use personal
+linear auth use personal --local
 
 # Run an arbitrary GraphQL query
 linear graphql 'query { viewer { id name email } }'
@@ -261,6 +264,19 @@ Place a config file in your project directory to set defaults per-project. Searc
 ```
 
 Local config overrides global/workspace defaults for `defaultTeamKey` and `outputFormat`, and can select the active profile via `workspace`.
+
+Set defaults with optional local override:
+
+```sh
+# Global defaults
+linear config workspace acme
+linear config team ENG
+
+# Same commands, but local to current project
+linear config workspace acme --local
+linear config team ENG --local
+```
+
 
 ## Agent Delegation
 
