@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/aliou/linear-cli/v0.4.0/schemas/config.schema.json",
+  "$id": "https://raw.githubusercontent.com/aliou/linear-cli/v0.5.0/schemas/config.schema.json",
   "title": "linear-cli config",
   "description": "Configuration for linear-cli.",
   "type": "object",

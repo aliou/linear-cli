@@ -12,7 +12,7 @@
 
   outputs = { self, nixpkgs, flake-utils, git-hooks }:
     let
-      version = "0.4.0";
+      version = "0.5.0";
 
       # Binary hashes for releases - update these after each release
       # Run: nix-prefetch-url --type sha256 <url>
@@ -20,15 +20,15 @@
       binaries = {
         "aarch64-darwin" = {
           url = "https://github.com/aliou/linear-cli/releases/download/v${version}/linear-darwin-arm64";
-          hash = "sha256-7kM7qq3JcIc259XZRYf76RJ93tOa/lPDCnPqsmr6pto="; # darwin
+          hash = "sha256-ftBKMrQINlhxdwd3K36yNuYOvm+qzkIbXMNDqtWkqBw="; # darwin
         };
         "aarch64-linux" = {
           url = "https://github.com/aliou/linear-cli/releases/download/v${version}/linear-linux-arm64";
-          hash = "sha256-PAHduC5lnCMQQR8bK06Qft1dVpc+NGrHencTAftP6P8="; # linux-arm64
+          hash = "sha256-dh7uCuj+7X0mVh1L7RSdx3SU84+6FhXI8e9vOlSvxpo="; # linux-arm64
         };
         "x86_64-linux" = {
           url = "https://github.com/aliou/linear-cli/releases/download/v${version}/linear-linux-x64";
-          hash = "sha256-5MdCVisHQkwTpHDc2AxnAT8hqS0tkEpzl2msykmrYLA="; # linux-x64
+          hash = "sha256-pV09d5ZzbyVkZGrwFGFXyNK/TsrnY3XBwEzRzvLq0zI="; # linux-x64
         };
       };
 
