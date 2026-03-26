@@ -1,5 +1,32 @@
 # linear-cli
 
+## 0.5.0
+
+### Minor Changes
+
+- 8dcf9e6: Remove OAuth authentication support and legacy auth parsing.
+
+  The CLI now accepts API keys only. Authentication resolves from `LINEAR_API_TOKEN` or `workspaces.<name>.apiToken`.
+
+  Top-level legacy auth fields and OAuth fields in config are now ignored and never written back.
+
+### Patch Changes
+
+- b4dc162: Add config setters with optional local scope.
+
+  - Add `linear config workspace <name>` and `linear config team <key>` for global defaults
+  - Add `--local` to those config setters to write project-local config values
+  - Add `--local` to `linear auth use <name>` to set local workspace directly
+  - Remove unreleased `linear config local ...` command group in favor of unified `--local` UX
+  - Document the new commands in README
+
+- b16190f: Improve agent ergonomics for destructive commands and help output.
+
+  - Add `--dry-run` preview mode for destructive operations (`comment delete`, `document delete`, `issue close`, `label delete`, `milestone delete`)
+  - Add `--yes` to skip interactive confirmations in non-interactive flows
+  - Add automatic command examples to leaf subcommand `--help` output
+  - Improve `auth login` missing-token errors with actionable hints
+
 ## 0.4.0
 
 ### Minor Changes
