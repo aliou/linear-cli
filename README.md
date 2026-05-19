@@ -4,6 +4,13 @@ A CLI for [Linear](https://linear.app) via the GraphQL API.
 
 ## Install
 
+### Homebrew (macOS Apple Silicon)
+
+```sh
+brew tap aliou/toolbox
+brew install linear-cli
+```
+
 ### From release binaries
 
 Download the latest binary from [Releases](https://github.com/aliou/linear-cli/releases) for your platform:
